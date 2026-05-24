@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Heart, MessageCircle, MapPin, Image as ImageIcon, X, Send, Plus, Camera, Loader2, RefreshCw } from 'lucide-react';
-import { useAppStore } from '../../stores/appStore';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Heart, MessageCircle, MapPin, Image as ImageIcon, X, Send, Camera, Loader2, RefreshCw, Trash2 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
-import { getPosts, getComments, addComment, createPost, uploadImage, checkLike, addLike, removeLike } from '../../services/supabaseService';
-import type { Post, Comment } from '../../types';
+import { getPosts, getComments, addComment, createPost, uploadImage, checkLike, addLike, removeLike, deletePost, getAttractions } from '../../services/supabaseService';
+import type { Post, Comment, Attraction } from '../../types';
 
 export default function Space() {
   const [posts, setPosts] = useState<Post[]>([]);
@@ -19,7 +18,6 @@ export default function Space() {
   const [isLoadingComments, setIsLoadingComments] = useState(false);
   const [newComment, setNewComment] = useState('');
   
-  const { checkins } = useAppStore();
   const { user, isAuthenticated } = useAuthStore();
 
   // 发布动态相关状态
@@ -31,6 +29,10 @@ export default function Space() {
   const [isPrivate, setIsPrivate] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [allAttractions, setAllAttractions] = useState<Attraction[]>([]);
+  const [attractionQuery, setAttractionQuery] = useState('');
+  const [isLoadingAttractions, setIsLoadingAttractions] = useState(false);
 
   const fetchPostsData = useCallback(async (pageNum: number, isRefresh = false) => {
     try {
@@ -96,10 +98,11 @@ export default function Space() {
     fetchPostsData(nextPage);
   };
 
-  const visitedAttractions = (checkins || [])
-    .filter((c) => c && c.status === 'visited')
-    .map((c) => c.attraction)
-    .filter(Boolean);
+  const filteredAttractions = useMemo(() => {
+    const q = attractionQuery.trim().toLowerCase();
+    if (!q) return allAttractions;
+    return allAttractions.filter((a) => `${a.name} ${a.city} ${a.province}`.toLowerCase().includes(q));
+  }, [allAttractions, attractionQuery]);
 
   const handleLike = async (post: Post) => {
     if (!isAuthenticated || !user) {
@@ -247,6 +250,48 @@ export default function Space() {
     setPreviewUrls([]);
     setSelectedAttraction('');
     setIsPrivate(false);
+    setAttractionQuery('');
+  };
+
+  const openCreateModal = async () => {
+    if (!isAuthenticated) {
+      alert('请先登录后再发布');
+      return;
+    }
+
+    setIsCreateModalOpen(true);
+
+    if (allAttractions.length === 0) {
+      try {
+        setIsLoadingAttractions(true);
+        const attractions = await getAttractions();
+        setAllAttractions(attractions);
+      } catch (error) {
+        console.error('加载景区列表失败:', error);
+      } finally {
+        setIsLoadingAttractions(false);
+      }
+    }
+  };
+
+  const handleDeletePost = async (post: Post) => {
+    if (!isAuthenticated || !user) {
+      alert('请先登录');
+      return;
+    }
+    if (post.user_id !== user.id) return;
+    if (!window.confirm('确定删除这条动态吗？')) return;
+
+    try {
+      await deletePost(post.id);
+      setPosts((prev) => prev.filter((p) => p.id !== post.id));
+      if (selectedPost?.id === post.id) {
+        setSelectedPost(null);
+      }
+    } catch (error) {
+      console.error('删除动态失败:', error);
+      alert('删除失败，请重试');
+    }
   };
 
   const formatTime = (time: string) => {
@@ -259,17 +304,32 @@ export default function Space() {
       {/* 头部 */}
       <div className="bg-white px-4 py-3 sticky top-0 z-10 shadow-sm flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold">空间</h1>
+          {isAuthenticated && user ? (
+            <div className="flex items-center gap-2">
+              <div className="w-9 h-9 rounded-full bg-gray-200 overflow-hidden shrink-0">
+                {user.avatar_url ? (
+                  <img src={user.avatar_url} alt={user.nickname} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-gray-500 text-sm font-semibold">
+                    {user.nickname?.[0] || 'U'}
+                  </div>
+                )}
+              </div>
+              <div className="text-sm font-semibold text-gray-900">{user.nickname}</div>
+            </div>
+          ) : (
+            <h1 className="text-lg font-semibold">动态</h1>
+          )}
           <button onClick={handleRefresh} disabled={isRefreshing} className="p-1 text-gray-400 hover:text-emerald-500 hover:bg-emerald-50 rounded-full transition-colors">
              <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
           </button>
         </div>
-        {isAuthenticated && (visitedAttractions.length > 0 || true) && (
+        {isAuthenticated && (
           <button
-            onClick={() => setIsCreateModalOpen(true)}
-            className="flex items-center gap-1 px-3 py-1.5 bg-emerald-500 text-white rounded-full text-sm"
+            onClick={openCreateModal}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 text-white rounded-full text-sm"
           >
-            <Plus size={16} />
+            <span className="text-sm leading-none">📷</span>
             发布
           </button>
         )}
@@ -294,13 +354,13 @@ export default function Space() {
             <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <Camera size={32} className="text-gray-400" />
             </div>
-            <p className="text-gray-500">还没有动态，快来发布第一条吧！</p>
-            {isAuthenticated && (visitedAttractions.length > 0 || true) && (
+            <p className="text-gray-500">先去打卡一些景区，然后回来分享你的旅行故事吧！</p>
+            {isAuthenticated && (
               <button
-                onClick={() => setIsCreateModalOpen(true)}
+                onClick={openCreateModal}
                 className="mt-4 px-6 py-2 bg-emerald-500 text-white rounded-full text-sm"
               >
-                发布动态
+                📷 发布
               </button>
             )}
           </div>
@@ -326,12 +386,18 @@ export default function Space() {
                   <div className="font-medium text-gray-900">{post.user?.nickname}</div>
                   <div className="text-xs text-gray-500">{formatTime(post.created_at || '')}</div>
                 </div>
-              </div>
-
-              {/* 景区信息 */}
-              <div className="flex items-center gap-1 text-sm text-emerald-600 mb-2">
-                <MapPin size={14} />
-                <span>{post.attraction?.name}</span>
+                {isAuthenticated && user && post.user_id === user.id && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeletePost(post);
+                    }}
+                    className="p-2 -mr-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full"
+                    aria-label="删除"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                )}
               </div>
 
               {/* 内容 */}
@@ -355,6 +421,12 @@ export default function Space() {
                   ))}
                 </div>
               )}
+
+              {/* 景区信息 */}
+              <div className="flex items-center gap-1 text-xs text-gray-500 mb-3">
+                <MapPin size={14} className="text-emerald-600" />
+                <span className="text-gray-700">{post.attraction?.name}</span>
+              </div>
 
               {/* 互动按钮 */}
               <div className="flex items-center gap-6 pt-3 border-t border-gray-100">
@@ -407,16 +479,7 @@ export default function Space() {
         </div>
       )}
 
-      {/* 未登录或无去过记录提示 */}
-      {(!isAuthenticated || visitedAttractions.length === 0) && !isLoadingPosts && posts.length > 0 && (
-        <div className="mx-4 mt-4 p-4 bg-amber-50 rounded-lg border border-amber-100">
-          <p className="text-sm text-amber-800">
-            {!isAuthenticated
-              ? '登录后可以在去过的景区发布动态，分享你的旅行故事~'
-              : '先去打卡一些景区，然后回来分享你的旅行故事吧！'}
-          </p>
-        </div>
-      )}
+      {null}
 
       {/* 评论弹窗 */}
       {selectedPost && (
@@ -548,21 +611,24 @@ export default function Space() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   选择打卡地点 <span className="text-red-500">*</span>
                 </label>
+                <input
+                  type="text"
+                  value={attractionQuery}
+                  onChange={(e) => setAttractionQuery(e.target.value)}
+                  placeholder="搜索景区名称或城市..."
+                  className="w-full mb-2 px-3 py-2 bg-gray-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
                 <select
                   value={selectedAttraction}
                   onChange={(e) => setSelectedAttraction(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
                 >
-                  <option value="">请选择去过的景区</option>
-                  {visitedAttractions.map((attraction) => (
-                    <option key={attraction?.id} value={attraction?.id}>
-                      {attraction?.name} ({attraction?.province}·{attraction?.city})
+                  <option value="">{isLoadingAttractions ? '加载景区中...' : '请选择景区'}</option>
+                  {filteredAttractions.map((attraction) => (
+                    <option key={attraction.id} value={attraction.id}>
+                      {attraction.name} ({attraction.province}·{attraction.city})
                     </option>
                   ))}
-                  {/* 如果没有任何去过的景区，提供一个占位选项用于测试 */}
-                  {visitedAttractions.length === 0 && (
-                    <option value="test_attr_1">（测试）模拟景区</option>
-                  )}
                 </select>
               </div>
 

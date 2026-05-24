@@ -1385,8 +1385,6 @@ export default function RoutePlanning() {
           <div className="flex gap-2 p-4 border-b shrink-0 relative">
             <AnimatePresence>
             {(() => {
-              const wantCount = useAppStore.getState().checkins.filter(c => c.status === 'want_to_visit').length;
-              
               // 按钮定义，使用 motion.button 实现平滑顺序切换动画
               const wantButton = (
                 <motion.button
@@ -1436,12 +1434,7 @@ export default function RoutePlanning() {
                 </motion.button>
               );
 
-              // 根据想去的数量决定顺序
-              if (wantCount >= 2) {
-                return [wantButton, recommendedButton, visitedButton];
-              } else {
-                return [recommendedButton, wantButton, visitedButton];
-              }
+              return [recommendedButton, wantButton, visitedButton];
             })()}
             </AnimatePresence>
           </div>
