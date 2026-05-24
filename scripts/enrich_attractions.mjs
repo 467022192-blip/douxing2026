@@ -10,8 +10,8 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 async function getWikipediaExtract(title) {
   try {
     const encodedTitle = encodeURIComponent(title);
-    const url = `https://zh.wikipedia.org/w/api.php?action=query&prop=extracts&exchars=200&explaintext=1&titles=${encodedTitle}&format=json`;
-    const res = await fetch(url);
+    const url = `https://zh.wikipedia.org/w/api.php?action=query&prop=extracts&exchars=350&explaintext=1&titles=${encodedTitle}&format=json`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'TraeBot/1.0 (https://trae.com; bot@example.com)' } });
     const data = await res.json();
     const pages = data.query?.pages;
     if (pages) {
@@ -93,10 +93,19 @@ async function run() {
       let description = attraction.description;
       
       // Fetch Wiki only if we don't have a long description
-      if (!description || description.length < 50) {
+      if (!description || description.length < 150) {
         const wikiExtract = await getWikipediaExtract(attraction.name);
         if (wikiExtract) {
           description = wikiExtract;
+        } else {
+          // If strict name fails, try stripping suffixes
+          let cleanName = attraction.name.replace(/(景区|旅游区|风景名胜区|旅游度假区|公园|遗址|风景区)/g, '');
+          if (cleanName !== attraction.name && cleanName.length >= 2) {
+            const wikiExtract2 = await getWikipediaExtract(cleanName);
+            if (wikiExtract2) {
+              description = wikiExtract2;
+            }
+          }
         }
       }
 

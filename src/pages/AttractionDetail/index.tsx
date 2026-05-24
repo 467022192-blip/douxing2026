@@ -11,6 +11,7 @@ export default function AttractionDetail() {
   const navigate = useNavigate();
   const [attraction, setAttraction] = useState<Attraction | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const { checkins, addCheckin, updateCheckin } = useAppStore();
   const { isAuthenticated } = useAuthStore();
@@ -163,7 +164,7 @@ export default function AttractionDetail() {
         <div className="absolute bottom-4 left-4 right-4 text-white">
           <div className="flex items-center gap-1.5 text-sm opacity-90 mb-1">
             <MapPin size={14} />
-            <span>{attraction.province} · {attraction.city}</span>
+            <span className="truncate">{attraction.address || `${attraction.province} · ${attraction.city}`}</span>
           </div>
           <h2 className="text-2xl font-bold">{attraction.name}</h2>
         </div>
@@ -195,9 +196,20 @@ export default function AttractionDetail() {
             <div className="w-1 h-4 bg-emerald-500 rounded-full"></div>
             景区简介
           </h3>
-          <p className="text-gray-600 text-sm leading-relaxed">
-            {attraction.description || '暂无详细简介。这可能是一个非常神秘的美丽景点，等待你去亲自探索。'}
-          </p>
+          <div className="relative">
+            <p className={`text-gray-600 text-sm leading-relaxed ${isExpanded ? '' : 'line-clamp-4'}`}>
+              {attraction.description || '暂无详细简介。这可能是一个非常神秘的美丽景点，等待你去亲自探索。'}
+            </p>
+            {attraction.description && attraction.description.length > 100 && (
+              <button 
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="text-emerald-500 text-xs font-medium mt-1 flex items-center gap-0.5"
+              >
+                {isExpanded ? '收起' : '展开阅读'} 
+                <svg className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+              </button>
+            )}
+          </div>
 
           <div className="border-t border-gray-100 pt-4 grid grid-cols-2 gap-3">
             <div className="flex items-start gap-2.5 bg-gray-50 p-3 rounded-xl">
