@@ -92,6 +92,24 @@ export default function AttractionDetail() {
   const descriptionText = attraction.tips || attraction.description || '暂无详细简介。这可能是一个非常神秘的美丽景点，等待你去亲自探索。';
   const isLongText = descriptionText.length > 100;
 
+  const formatPriceDesc = (raw: string) => {
+    const text = raw.trim();
+    if (!text) return '';
+    if (text.includes('旺季') && text.includes('淡季')) {
+      const normalized = text.replace(/\s*\/\s*/g, '\n');
+      return normalized;
+    }
+    return text;
+  };
+
+  const ticketText = (() => {
+    if (attraction.price_desc) return formatPriceDesc(attraction.price_desc);
+    if (attraction.ticket_price === 0) return '免费开放';
+    return `约 ${attraction.ticket_price} 元`;
+  })();
+
+  const openTimeText = attraction.open_time || '全天开放';
+
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* 头部导航 */}
@@ -221,8 +239,8 @@ export default function AttractionDetail() {
               </div>
               <div>
                 <p className="text-[11px] text-gray-500 mb-0.5">参考门票</p>
-                <p className="text-sm font-bold text-gray-900 leading-snug">
-                  {attraction.price_desc || (attraction.ticket_price === 0 ? '免费开放' : `约 ${attraction.ticket_price} 元`)}
+                <p className="text-xs font-semibold text-gray-900 leading-snug whitespace-pre-line">
+                  {ticketText}
                 </p>
               </div>
             </div>
@@ -232,8 +250,8 @@ export default function AttractionDetail() {
               </div>
               <div>
                 <p className="text-[11px] text-gray-500 mb-0.5">开放时间</p>
-                <p className="text-sm font-bold text-gray-900 leading-snug">
-                  {attraction.open_time || '全天开放'}
+                <p className="text-xs font-semibold text-gray-900 leading-snug whitespace-pre-line">
+                  {openTimeText}
                 </p>
               </div>
             </div>
