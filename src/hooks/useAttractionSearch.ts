@@ -11,6 +11,14 @@ export function useAttractionSearch(keyword: string, filterIds?: string[], provi
   const filterIdsStr = filterIds ? filterIds.join(',') : null;
 
   useEffect(() => {
+    if (filterIds && filterIds.length === 0) {
+      requestSeqRef.current += 1;
+      setLoading(false);
+      setError(null);
+      setData([]);
+      return;
+    }
+
     const handler = setTimeout(async () => {
       const seq = ++requestSeqRef.current;
       setLoading(true);

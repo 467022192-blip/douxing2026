@@ -63,12 +63,7 @@ export const useAppStore = create<AppState>()(
 
           if (error) throw error;
 
-          if (data && data.length > 0) {
-            set({ checkins: data as UserCheckin[] });
-          } else {
-            // 新用户如果没有数据，为了体验可以加载一份Mock数据并同步到云端
-            get().loadMockData();
-          }
+          set({ checkins: (data as UserCheckin[]) || [] });
         } catch (error) {
           console.error('Load checkins error:', error);
         } finally {
@@ -173,10 +168,9 @@ export const useAppStore = create<AppState>()(
       },
     }),
     {
-      name: 'app-storage-local', // 使用新的 key 隔离之前的存储
+      name: 'app-storage-v2',
       partialize: (state) => ({
         selectedProvince: state.selectedProvince,
-        checkins: state.checkins, // 现改为本地持久化全部打卡数据
       }),
     }
   )

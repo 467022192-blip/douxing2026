@@ -254,9 +254,35 @@ export default function Home() {
             <p className="text-sm mt-1">请检查 Vercel 环境变量与 Supabase RLS 配置</p>
           </div>
         ) : displayedAttractions.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <p>暂无景区数据</p>
-          </div>
+          filterType === 'want_to_visit' || filterType === 'visited' ? (
+            <div className="flex flex-col items-center justify-center py-14 px-6 text-center">
+              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 ${
+                filterType === 'want_to_visit' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'
+              }`}>
+                {filterType === 'want_to_visit' ? (
+                  <Heart size={26} className="text-amber-500 fill-amber-500" />
+                ) : (
+                  <CheckCircle2 size={26} className="text-emerald-500" />
+                )}
+              </div>
+              <p className="font-semibold text-gray-800">
+                {filterType === 'want_to_visit' ? '还没有想去的景区' : '还没有去过的景区'}
+              </p>
+              <p className="text-sm text-gray-500 mt-2">
+                去「推荐」里逛逛，点 ❤️ 加入想去，点 ✅ 标记去过
+              </p>
+              <button
+                onClick={() => setFilterType('all')}
+                className="mt-5 h-10 px-5 rounded-xl bg-emerald-600 text-white text-sm font-medium"
+              >
+                去推荐看看
+              </button>
+            </div>
+          ) : (
+            <div className="text-center py-12 text-gray-500">
+              <p>暂无景区数据</p>
+            </div>
+          )
         ) : (
           <AutoSizer
             renderProp={({ height, width }) => {
