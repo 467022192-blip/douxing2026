@@ -13,6 +13,9 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [registrationSuccess, setRegistrationSuccess] = useState(false);
+  const [showAutoRegisterPrompt, setShowAutoRegisterPrompt] = useState(false);
+  const [pendingCredentials, setPendingCredentials] = useState<{ email: string; password: string } | null>(null);
+  const [pendingLoginError, setPendingLoginError] = useState<string>('');
 
   // 表单数据
   const [formData, setFormData] = useState({
@@ -26,34 +29,13 @@ export default function Login() {
     setError('');
     setIsLoading(true);
 
-    const emailPrefix = formData.email.split('@')[0] || '新用户';
-
     try {
       if (mode === 'login') {
         const { error } = await loginWithEmail(formData.email, formData.password);
         if (error) {
-          const shouldAutoRegister = window.confirm(
-            '该邮箱可能尚未注册，是否为你创建账号并直接登录？\n\n如果你已注册，请取消并检查密码。'
-          );
-
-          if (!shouldAutoRegister) {
-            setError(error.message || '登录失败，请检查邮箱和密码');
-            return;
-          }
-
-          const { error: registerError, needsEmailConfirmation } = await registerWithEmail(
-            formData.email,
-            formData.password,
-            emailPrefix
-          );
-
-          if (registerError) {
-            setError(registerError.message || '创建账号失败，请稍后重试');
-          } else if (needsEmailConfirmation) {
-            setRegistrationSuccess(true);
-          } else {
-            navigate('/profile');
-          }
+          setPendingCredentials({ email: formData.email, password: formData.password });
+          setPendingLoginError(error.message || '登录失败，请检查邮箱和密码');
+          setShowAutoRegisterPrompt(true);
         } else {
           navigate('/profile');
         }
@@ -83,10 +65,51 @@ export default function Login() {
     }
   };
 
+  const closeAutoRegisterPrompt = () => {
+    setShowAutoRegisterPrompt(false);
+    setPendingCredentials(null);
+  };
+
+  const confirmAutoRegister = async () => {
+    if (!pendingCredentials) return;
+    const emailPrefix = pendingCredentials.email.split('@')[0] || '新用户';
+
+    setIsLoading(true);
+    try {
+      const { error: registerError, needsEmailConfirmation } = await registerWithEmail(
+        pendingCredentials.email,
+        pendingCredentials.password,
+        emailPrefix
+      );
+
+      if (registerError) {
+        setError(registerError.message || pendingLoginError || '创建账号失败，请稍后重试');
+        closeAutoRegisterPrompt();
+        return;
+      }
+
+      closeAutoRegisterPrompt();
+
+      if (needsEmailConfirmation) {
+        setRegistrationSuccess(true);
+      } else {
+        navigate('/profile');
+      }
+    } catch {
+      setError('创建账号失败，请稍后重试');
+      closeAutoRegisterPrompt();
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const toggleMode = () => {
     setMode(mode === 'login' ? 'register' : 'login');
     setError('');
     setFormData({ email: '', password: '', nickname: '' });
+    setShowAutoRegisterPrompt(false);
+    setPendingCredentials(null);
+    setPendingLoginError('');
   };
 
   if (registrationSuccess) {
@@ -114,6 +137,55 @@ export default function Login() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {showAutoRegisterPrompt && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6"
+          onClick={() => {
+            closeAutoRegisterPrompt();
+            setError(pendingLoginError);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-xs aspect-[3/4] bg-white rounded-2xl shadow-xl flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex-1 px-6 pt-6 flex flex-col">
+              <div className="text-lg font-semibold text-gray-900 text-center">提示</div>
+              <div className="mt-4 text-sm text-gray-600 text-center leading-relaxed">
+                该邮箱可能尚未注册，是否为你创建账号并直接登录？
+              </div>
+              <div className="flex-1" />
+            </div>
+
+            <div className="px-6 pb-6">
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeAutoRegisterPrompt();
+                    setError(pendingLoginError);
+                  }}
+                  className="h-10 px-6 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium"
+                  disabled={isLoading}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmAutoRegister}
+                  className="h-10 px-6 rounded-xl bg-emerald-600 text-white text-sm font-medium"
+                  disabled={isLoading}
+                >
+                  确认
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 头部 */}
       <div className="bg-white px-4 py-3 sticky top-0 z-10 shadow-sm flex items-center">
         <button
