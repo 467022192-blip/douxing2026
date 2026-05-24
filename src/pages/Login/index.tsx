@@ -155,7 +155,7 @@ export default function Login() {
             role="dialog"
             aria-modal="true"
             className="w-full aspect-[4/3] bg-white rounded-2xl shadow-xl flex flex-col"
-            style={{ maxWidth: 360, height: '25vh' }}
+            style={{ maxWidth: 360, height: '30vh' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex-1 px-6 pt-6 flex flex-col">
