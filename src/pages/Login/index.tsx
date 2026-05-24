@@ -26,11 +26,34 @@ export default function Login() {
     setError('');
     setIsLoading(true);
 
+    const emailPrefix = formData.email.split('@')[0] || '新用户';
+
     try {
       if (mode === 'login') {
         const { error } = await loginWithEmail(formData.email, formData.password);
         if (error) {
-          setError(error.message || '登录失败，请检查邮箱和密码');
+          const shouldAutoRegister = window.confirm(
+            '该邮箱可能尚未注册，是否为你创建账号并直接登录？\n\n如果你已注册，请取消并检查密码。'
+          );
+
+          if (!shouldAutoRegister) {
+            setError(error.message || '登录失败，请检查邮箱和密码');
+            return;
+          }
+
+          const { error: registerError, needsEmailConfirmation } = await registerWithEmail(
+            formData.email,
+            formData.password,
+            emailPrefix
+          );
+
+          if (registerError) {
+            setError(registerError.message || '创建账号失败，请稍后重试');
+          } else if (needsEmailConfirmation) {
+            setRegistrationSuccess(true);
+          } else {
+            navigate('/profile');
+          }
         } else {
           navigate('/profile');
         }

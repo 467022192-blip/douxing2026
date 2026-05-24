@@ -29,6 +29,23 @@ interface AuthState {
   updateProfile: (profile: Partial<UserProfile>) => Promise<void>;
 }
 
+const fetchProfileWithRetry = async (userId: string) => {
+  let profile: unknown = null;
+  for (let i = 0; i < 3; i++) {
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+    if (data) {
+      profile = data;
+      break;
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  return profile as UserProfile | null;
+};
+
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
@@ -44,12 +61,7 @@ export const useAuthStore = create<AuthState>()(
           if (error) throw error;
           
           if (session?.user) {
-            // 获取用户资料
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', session.user.id)
-              .single();
+            const profile = await fetchProfileWithRetry(session.user.id);
               
             set({ 
               user: profile as UserProfile,
@@ -63,20 +75,7 @@ export const useAuthStore = create<AuthState>()(
           // 监听认证状态变化
           supabase.auth.onAuthStateChange(async (_event, session) => {
             if (session?.user) {
-              // 简单重试机制，防止注册时 profile 还没写入
-              let profile = null;
-              for (let i = 0; i < 3; i++) {
-                const { data } = await supabase
-                  .from('profiles')
-                  .select('*')
-                  .eq('id', session.user.id)
-                  .single();
-                if (data) {
-                  profile = data;
-                  break;
-                }
-                await new Promise(resolve => setTimeout(resolve, 500));
-              }
+              const profile = await fetchProfileWithRetry(session.user.id);
                 
               if (profile) {
                 set({ 
@@ -103,6 +102,12 @@ export const useAuthStore = create<AuthState>()(
           });
           
           if (error) throw error;
+
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user) {
+            const profile = await fetchProfileWithRetry(session.user.id);
+            set({ user: profile, isAuthenticated: true });
+          }
           return { error: null };
         } catch (error) {
           return { error: error as Error };
@@ -142,6 +147,11 @@ export const useAuthStore = create<AuthState>()(
               console.error('Profile creation error:', profileError);
               // 但用户已经注册成功，我们依然返回 null
             }
+          }
+
+          if (data.session?.user) {
+            const profile = await fetchProfileWithRetry(data.session.user.id);
+            set({ user: profile, isAuthenticated: true });
           }
           
           return { error: null, needsEmailConfirmation };
