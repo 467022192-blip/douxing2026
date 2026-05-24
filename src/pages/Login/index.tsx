@@ -70,6 +70,12 @@ export default function Login() {
     setPendingCredentials(null);
   };
 
+  const getFriendlyLoginError = (raw: string) => {
+    const lowered = raw.toLowerCase();
+    if (lowered.includes('invalid login credentials')) return '登录失败，请检查邮箱和密码';
+    return raw || '登录失败，请检查邮箱和密码';
+  };
+
   const confirmAutoRegister = async () => {
     if (!pendingCredentials) return;
     const emailPrefix = pendingCredentials.email.split('@')[0] || '新用户';
@@ -142,13 +148,14 @@ export default function Login() {
           className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6"
           onClick={() => {
             closeAutoRegisterPrompt();
-            setError(pendingLoginError);
+            setError(getFriendlyLoginError(pendingLoginError));
           }}
         >
           <div
             role="dialog"
             aria-modal="true"
-            className="w-full max-w-xs aspect-[3/4] bg-white rounded-2xl shadow-xl flex flex-col"
+            className="w-full aspect-[4/5] bg-white rounded-2xl shadow-xl flex flex-col"
+            style={{ maxWidth: 360, height: '40vh' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex-1 px-6 pt-6 flex flex-col">
@@ -165,7 +172,7 @@ export default function Login() {
                   type="button"
                   onClick={() => {
                     closeAutoRegisterPrompt();
-                    setError(pendingLoginError);
+                    setError(getFriendlyLoginError(pendingLoginError));
                   }}
                   className="h-10 px-6 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium"
                   disabled={isLoading}
