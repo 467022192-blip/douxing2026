@@ -76,6 +76,8 @@
 2. Vercel → New Project → Import
 3. Framework 选择 Vite（项目已提供 `vercel.json`）
 
+建议在 Vercel Project → Settings → General 中将 Node.js 版本设置为 `18.x`。
+
 ### 7.2 Vercel 环境变量
 
 在 Vercel Project → Settings → Environment Variables 添加：
@@ -91,6 +93,16 @@
 - `VITE_SHOW_TRAE_BADGE=true`
 
 注意：Vercel 的 `Production` / `Preview` / `Development` 三个环境可以分别配置。
+
+### 7.4 常见构建失败：`npm error Exit handler never called!`
+
+这通常发生在依赖安装阶段，是 npm CLI 的已知异常（并非业务代码报错）。
+
+推荐处理：
+
+1. 使用 Node `18.x`（本项目已添加 `.nvmrc` 与 `package.json#engines`）
+2. 确保使用 `npm ci` 安装依赖（本项目已在 `vercel.json` 设置 `installCommand`）
+3. 在 Vercel 重新部署前点击一次 "Clear build cache"
 
 ### 7.3 Supabase 侧配置
 
