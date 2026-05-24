@@ -10,7 +10,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 async function getWikipediaExtract(title) {
   try {
     const encodedTitle = encodeURIComponent(title);
-    const url = `https://zh.wikipedia.org/w/api.php?action=query&prop=extracts&exchars=350&explaintext=1&titles=${encodedTitle}&format=json`;
+    const url = `https://zh.wikipedia.org/w/api.php?action=query&prop=extracts&exchars=350&explaintext=1&redirects=1&titles=${encodedTitle}&format=json`;
     const res = await fetch(url, { headers: { 'User-Agent': 'TraeBot/1.0 (https://trae.com; bot@example.com)' } });
     const data = await res.json();
     const pages = data.query?.pages;
@@ -111,9 +111,9 @@ async function run() {
 
       const enriched = enrichAttractionInfo(attraction);
       
-      // Update DB
+      // Update DB (preserve short description in 'description', put long text in 'tips')
       await supabase.from('attractions').update({
-        description: description || enriched.description,
+        tips: description || enriched.description,
         open_time: enriched.open_time,
         ticket_price: enriched.ticket_price,
         price_desc: enriched.price_desc,

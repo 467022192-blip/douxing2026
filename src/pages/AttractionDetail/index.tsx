@@ -198,9 +198,9 @@ export default function AttractionDetail() {
           </h3>
           <div className="relative">
             <p className={`text-gray-600 text-sm leading-relaxed ${isExpanded ? '' : 'line-clamp-4'}`}>
-              {attraction.description || '暂无详细简介。这可能是一个非常神秘的美丽景点，等待你去亲自探索。'}
+              {attraction.tips || attraction.description || '暂无详细简介。这可能是一个非常神秘的美丽景点，等待你去亲自探索。'}
             </p>
-            {attraction.description && attraction.description.length > 100 && (
+            {(attraction.tips || attraction.description) && (attraction.tips || attraction.description)!.length > 100 && (
               <button 
                 onClick={() => setIsExpanded(!isExpanded)}
                 className="text-emerald-500 text-xs font-medium mt-1 flex items-center gap-0.5"
