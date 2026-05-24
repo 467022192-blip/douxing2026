@@ -61,6 +61,9 @@ export default function Footprint() {
     const script = document.createElement('script');
     script.src = `https://api.map.baidu.com/api?v=3.0&ak=${baiduMapAk}&callback=initMap`;
     script.async = true;
+    script.onerror = () => {
+      setMapConfigError('百度地图脚本加载失败，请检查 AK 或网络环境');
+    };
     document.body.appendChild(script);
 
     window.initMap = () => {

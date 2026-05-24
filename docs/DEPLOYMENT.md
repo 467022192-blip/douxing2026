@@ -12,6 +12,8 @@
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_BAIDU_MAP_AK`
 
+注意：`VITE_SUPABASE_URL` 必须是项目根域名（形如 `https://xxxx.supabase.co`），不要带 `/rest/v1` 后缀。
+
 可选配置：
 
 - `VITE_SENTRY_DSN`（开启前端错误监控）

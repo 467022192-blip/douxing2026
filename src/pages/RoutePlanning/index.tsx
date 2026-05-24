@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -23,6 +23,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '../../stores/appStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useAttractionSearch } from '../../hooks/useAttractionSearch';
+import { env } from '../../config/env';
 import type { Attraction } from '../../types';
 import type { BMapMap, BMapPoint, BMapMarker, BMapLabel, BMapPolyline } from '../../types/bmap';
 
@@ -262,12 +263,70 @@ export default function RoutePlanning() {
     return grouped;
   }, [availableAttractions, checkins]);
 
+  // 更新地图标记
+  const updateMapMarkers = useCallback((points?: RoutePoint[]) => {
+    if (!mapInstanceRef.current) return;
+
+    const map = mapInstanceRef.current;
+
+    markersRef.current.forEach(marker => map.removeOverlay(marker));
+    markersRef.current = [];
+
+    const pointsToShow =
+      points ||
+      (routePlan?.points.length
+        ? routePlan.points
+        : selectedAttractions.map((a, i) => ({ attraction: a, order: i + 1 })));
+
+    if (pointsToShow.length === 0) return;
+
+    pointsToShow.forEach((point) => {
+      const attraction = 'attraction' in point ? point.attraction : point;
+      const order = 'order' in point ? point.order : 1;
+      const bmapPoint = new window.BMap.Point(attraction.longitude, attraction.latitude);
+
+      const marker = new window.BMap.Marker(bmapPoint);
+
+      const label = new window.BMap.Label(`${order}. ${attraction.name}`, {
+        offset: new window.BMap.Size(15, -15),
+      });
+      label.setStyle({
+        color: '#fff',
+        backgroundColor: ROUTE_COLORS.marker,
+        border: 'none',
+        borderRadius: '4px',
+        padding: '4px 8px',
+        fontSize: '12px',
+        fontWeight: 'bold',
+      });
+      marker.setLabel(label);
+
+      map.addOverlay(marker);
+      markersRef.current.push(marker);
+    });
+
+    const bmapPoints = pointsToShow.map((p) => {
+      const attraction = 'attraction' in p ? p.attraction : p;
+      return new window.BMap.Point(attraction.longitude, attraction.latitude);
+    });
+
+    const bottomMargin = 160;
+    const viewport = map.getViewport(bmapPoints, {
+      margins: [50, 50, bottomMargin, 50]
+    });
+    map.centerAndZoom(viewport.center, viewport.zoom);
+  }, [routePlan, selectedAttractions]);
+
+  const collapsePanel = useCallback(() => {
+    setIsPanelExpanded(false);
+  }, []);
+
   // 加载百度地图
   useEffect(() => {
-    const baiduMapAk = import.meta.env.VITE_BAIDU_MAP_AK;
+    const baiduMapAk = env.baiduMapAk;
     let script: HTMLScriptElement | null = null;
     
-    if (!baiduMapAk || baiduMapAk === 'your-baidu-map-ak' || baiduMapAk === 'mock-key-for-development') {
+    if (!baiduMapAk) {
       console.warn('百度地图API Key未配置，使用静态示意模式');
       setIsMapLoaded(false);
       return;
@@ -281,6 +340,10 @@ export default function RoutePlanning() {
     script = document.createElement('script');
     script.src = `https://api.map.baidu.com/api?v=3.0&ak=${baiduMapAk}&callback=initRouteMap`;
     script.async = true;
+    script.onerror = () => {
+      console.warn('百度地图脚本加载失败，使用静态示意模式');
+      setIsMapLoaded(false);
+    };
     document.body.appendChild(script);
 
     window.initRouteMap = () => {
@@ -314,83 +377,28 @@ export default function RoutePlanning() {
     // 移除原生缩放控件，改用自定义左上角UI
 
     updateMapMarkers();
-  }, [isMapLoaded]);
+  }, [isMapLoaded, updateMapMarkers]);
 
   // 当选择的景区变化时，更新地图标记
   useEffect(() => {
     if (mapInstanceRef.current) {
       updateMapMarkers();
     }
-  }, [selectedAttractions]);
+  }, [selectedAttractions, updateMapMarkers]);
 
   // 当步骤变化时（地图容器大小变化），触发 resize 确保地图重新计算布局
   useEffect(() => {
     if (mapInstanceRef.current && step === 'result') {
       // 稍微延迟一下，等待 CSS 动画和 DOM 渲染完成
-      setTimeout(() => {
+      const t = window.setTimeout(() => {
         window.dispatchEvent(new Event('resize'));
         // 仅在步骤变化时重新计算视口，展开收起浮层时不再重算，以保护用户自行调整的缩放状态
         updateMapMarkers();
       }, 300);
+
+      return () => window.clearTimeout(t);
     }
-  }, [step]);
-
-  // 更新地图标记
-  const updateMapMarkers = (points?: RoutePoint[]) => {
-    if (!mapInstanceRef.current) return;
-
-    const map = mapInstanceRef.current;
-    
-    markersRef.current.forEach(marker => map.removeOverlay(marker));
-    markersRef.current = [];
-
-    // 优先使用传入的points（路线规划后的顺序），否则使用selectedAttractions
-    const pointsToShow = points || (routePlan?.points.length ? routePlan.points : selectedAttractions.map((a, i) => ({ attraction: a, order: i + 1 })));
-
-    if (pointsToShow.length > 0) {
-      pointsToShow.forEach((point) => {
-        const attraction = 'attraction' in point ? point.attraction : point;
-        const order = 'order' in point ? point.order : 1;
-        const bmapPoint = new window.BMap.Point(attraction.longitude, attraction.latitude);
-        
-        const marker = new window.BMap.Marker(bmapPoint);
-        
-        const label = new window.BMap.Label(`${order}. ${attraction.name}`, {
-          offset: new window.BMap.Size(15, -15),
-        });
-        label.setStyle({
-          color: '#fff',
-          backgroundColor: ROUTE_COLORS.marker,
-          border: 'none',
-          borderRadius: '4px',
-          padding: '4px 8px',
-          fontSize: '12px',
-          fontWeight: 'bold',
-        });
-        marker.setLabel(label);
-
-        map.addOverlay(marker);
-        markersRef.current.push(marker);
-      });
-
-      const bmapPoints = pointsToShow.map(
-        (p) => {
-          const attraction = 'attraction' in p ? p.attraction : p;
-          return new window.BMap.Point(attraction.longitude, attraction.latitude);
-        }
-      );
-      
-      // 根据浮层状态动态计算地图视口的底部边距（避免被浮层遮挡）
-      // 注意：现在由于我们去掉了 isPanelExpanded 触发的重新计算，这里计算的主要是初始展开时的边距
-      // 底部留出 160px，确保缩放后所有节点都可见，且不被底部的常驻面板遮挡
-      const bottomMargin = 160;
-      
-      const viewport = map.getViewport(bmapPoints, {
-        margins: [50, 50, bottomMargin, 50] // [top, right, bottom, left]
-      });
-      map.centerAndZoom(viewport.center, viewport.zoom);
-    }
-  };
+  }, [step, updateMapMarkers]);
 
   // 选择/取消选择景区
   const toggleAttraction = (attraction: Attraction) => {
@@ -1060,13 +1068,6 @@ export default function RoutePlanning() {
     setIsPanelExpanded(!isPanelExpanded);
   };
 
-  // 收起浮层面板
-  const collapsePanel = () => {
-    if (isPanelExpanded) {
-      setIsPanelExpanded(false);
-    }
-  };
-
   // 监听地图交互，自动收起浮层
   useEffect(() => {
     if (step !== 'result' || !mapRef.current) return;
@@ -1075,10 +1076,7 @@ export default function RoutePlanning() {
     
     // 监听地图交互事件 - 仅使用 click 降低敏感度
     const handleMapInteraction = () => {
-      // 只有在展开状态时才需要收起
-      if (isPanelExpanded) {
-        collapsePanel();
-      }
+      collapsePanel();
     };
 
     // 对于真实百度地图，通过实例监听 click 更好
@@ -1101,7 +1099,7 @@ export default function RoutePlanning() {
         mapElement.removeEventListener('click', handleMapInteraction);
       }
     };
-  }, [step, isPanelExpanded]);
+  }, [step, collapsePanel]);
 
   return (
     <div className="h-screen bg-gray-50 flex flex-col relative overflow-hidden">

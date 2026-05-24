@@ -291,9 +291,17 @@ export default function Profile() {
       {/* 功能菜单 */}
       <div className="mx-4 mt-4 bg-white rounded-xl shadow-sm overflow-hidden">
         {menuItems.map((item, index) => (
-          <button
+          <div
             key={item.label}
             onClick={item.onClick}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                item.onClick();
+              }
+            }}
+            role="button"
+            tabIndex={0}
             className={`w-full flex items-center justify-between px-4 py-4 ${
               index !== menuItems.length - 1 ? 'border-b border-gray-100' : ''
             }`}
@@ -310,7 +318,7 @@ export default function Profile() {
               </div>
             </div>
             {item.rightElement || <ChevronRight size={18} className="text-gray-400" />}
-          </button>
+          </div>
         ))}
       </div>
 

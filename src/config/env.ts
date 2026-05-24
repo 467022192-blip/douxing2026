@@ -10,8 +10,16 @@ type AppEnv = {
 
 const getString = (value: unknown) => (typeof value === 'string' ? value : '');
 
+const normalizeSupabaseUrl = (raw: string) => {
+  let url = raw.trim();
+  if (!url) return '';
+  url = url.replace(/\/+$/, '');
+  url = url.replace(/\/rest\/v1\/?$/, '');
+  return url;
+};
+
 export const env: AppEnv = {
-  supabaseUrl: getString(import.meta.env.VITE_SUPABASE_URL),
+  supabaseUrl: normalizeSupabaseUrl(getString(import.meta.env.VITE_SUPABASE_URL)),
   supabaseAnonKey: getString(import.meta.env.VITE_SUPABASE_ANON_KEY),
   baiduMapAk: getString(import.meta.env.VITE_BAIDU_MAP_AK),
   sentryDsn: getString(import.meta.env.VITE_SENTRY_DSN),
