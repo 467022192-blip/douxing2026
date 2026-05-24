@@ -40,6 +40,8 @@
 2. 复制粘贴执行 `supabase/rls_policies.sql`
 3. 验证：未登录用户只能读取公开内容；登录用户只能读写自己的数据
 
+如果线上首页出现“暂无景区数据”，通常是 `attractions` 开启了 RLS 但没有 `select` 策略导致的。`rls_policies.sql` 已包含 `attractions` 的公开读取策略。
+
 ## 4. Supabase Auth 域名/回调
 
 需要在 Supabase Console 配置：

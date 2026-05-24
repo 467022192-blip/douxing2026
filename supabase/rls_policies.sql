@@ -3,6 +3,20 @@ alter table public.user_checkins enable row level security;
 alter table public.posts enable row level security;
 alter table public.comments enable row level security;
 alter table public.likes enable row level security;
+alter table public.attractions enable row level security;
+
+drop policy if exists "attractions_select_public" on public.attractions;
+drop policy if exists "attractions_select_public_authenticated" on public.attractions;
+
+create policy "attractions_select_public" on public.attractions
+for select
+to anon
+using (true);
+
+create policy "attractions_select_public_authenticated" on public.attractions
+for select
+to authenticated
+using (true);
 
 drop policy if exists "profiles_select_own" on public.profiles;
 drop policy if exists "profiles_insert_own" on public.profiles;

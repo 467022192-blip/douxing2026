@@ -57,7 +57,7 @@ export default function Home() {
   }, [filterType, stableCheckins]);
 
   // 调用后端搜索 Hook
-  const { data: displayedAttractions, loading } = useAttractionSearch(searchQuery, filterIds, selectedProvince);
+  const { data: displayedAttractions, loading, error } = useAttractionSearch(searchQuery, filterIds, selectedProvince);
 
   const stats = useMemo(() => {
     if (!checkins || !Array.isArray(checkins)) return { visited: 0, wantToVisit: 0, undecided: 0 };
@@ -247,6 +247,11 @@ export default function Home() {
         {loading ? (
           <div className="flex justify-center items-center py-12">
             <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+          </div>
+        ) : error ? (
+          <div className="text-center py-12 text-gray-500">
+            <p className="font-medium text-gray-700">景区数据加载失败</p>
+            <p className="text-sm mt-1">请检查 Vercel 环境变量与 Supabase RLS 配置</p>
           </div>
         ) : displayedAttractions.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
