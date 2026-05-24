@@ -16,10 +16,7 @@ export default function Footprint() {
   const mapInstanceRef = useRef<BMapMap | null>(null);
   const markersRef = useRef<{ marker: BMapLabel; attraction: Attraction; isUnmarked: boolean }[]>([]);
   const { checkins } = useAppStore();
-  const [filter, setFilter] = useState<'all' | 'visited' | 'want_to_visit'>(() => {
-    const wantCount = useAppStore.getState().checkins.filter(c => c.status === 'want_to_visit').length;
-    return wantCount > 0 ? 'want_to_visit' : 'all';
-  });
+  const [filter, setFilter] = useState<'all' | 'visited' | 'want_to_visit'>('all');
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [mapConfigError, setMapConfigError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');

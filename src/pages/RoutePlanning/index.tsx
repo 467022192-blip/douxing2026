@@ -113,10 +113,7 @@ export default function RoutePlanning() {
   const [step, setStep] = useState<'select' | 'loading' | 'result'>('select');
   const [selectedAttractions, setSelectedAttractions] = useState<Attraction[]>([]);
   const [routePlan, setRoutePlan] = useState<RoutePlan | null>(null);
-  const [filter, setFilter] = useState<'want_to_visit' | 'visited' | 'all'>(() => {
-    const wantCount = useAppStore.getState().checkins.filter(c => c.status === 'want_to_visit').length;
-    return wantCount > 0 ? 'want_to_visit' : 'all';
-  });
+  const [filter, setFilter] = useState<'want_to_visit' | 'visited' | 'all'>('all');
   const [savedRoutes, setSavedRoutes] = useState<SavedRoute[]>([]);
   const [showSavedRoutes, setShowSavedRoutes] = useState(false);
   const [expandedSegments, setExpandedSegments] = useState<number[]>([]);
@@ -228,39 +225,55 @@ export default function RoutePlanning() {
     if (searchQuery.trim()) {
       return fetchedAttractions; // 搜索时展示全部符合条件的
     }
-    if (filter === 'all') {
-      const visitedIds = checkins
-        .filter((c) => c.status === 'visited')
-        .map((c) => c.attraction_id);
-      return fetchedAttractions.filter(a => !visitedIds.includes(a.id));
-    }
     return fetchedAttractions;
-  }, [fetchedAttractions, filter, checkins, searchQuery]);
+  }, [fetchedAttractions, searchQuery]);
 
   // 按省市聚类的景区
   const groupedAttractions = useMemo(() => {
     const grouped = groupAttractionsByProvince(availableAttractions);
-    
+
+    const statusByAttractionId = new Map(checkins.map(c => [c.attraction_id, c.status] as const));
+
     const getStatusScore = (id: string) => {
-      const status = checkins.find(c => c.attraction_id === id)?.status;
+      const status = statusByAttractionId.get(id);
       if (status === 'want_to_visit') return 2;
       if (status === 'visited') return 0;
-      return 1; // unmarked
+      return 1;
     };
 
-    // 对每个省份内的景点进行排序
-    Object.keys(grouped).forEach(province => {
-      grouped[province].sort((a, b) => {
-        const scoreA = getStatusScore(a.id);
-        const scoreB = getStatusScore(b.id);
-        if (scoreA !== scoreB) {
-          return scoreB - scoreA; // 想去(2) > 未标记(1) > 去过(0)
-        }
-        return 0;
+    const wantCountByProvince: Record<string, number> = {};
+    Object.entries(grouped).forEach(([province, attractions]) => {
+      let count = 0;
+      attractions.forEach(a => {
+        if (statusByAttractionId.get(a.id) === 'want_to_visit') count += 1;
       });
+      wantCountByProvince[province] = count;
     });
 
-    return grouped;
+    const sortedProvinces = Object.keys(grouped).sort((a, b) => {
+      const aWant = wantCountByProvince[a] || 0;
+      const bWant = wantCountByProvince[b] || 0;
+      const aHas = aWant > 0 ? 1 : 0;
+      const bHas = bWant > 0 ? 1 : 0;
+      if (aHas !== bHas) return bHas - aHas;
+      if (aWant !== bWant) return bWant - aWant;
+      return a.localeCompare(b, 'zh');
+    });
+
+    // 对每个省份内的景点进行排序
+    const ordered: Record<string, Attraction[]> = {};
+    sortedProvinces.forEach((province) => {
+      const list = [...grouped[province]];
+      list.sort((a, b) => {
+        const scoreA = getStatusScore(a.id);
+        const scoreB = getStatusScore(b.id);
+        if (scoreA !== scoreB) return scoreB - scoreA;
+        return a.name.localeCompare(b.name, 'zh');
+      });
+      ordered[province] = list;
+    });
+
+    return ordered;
   }, [availableAttractions, checkins]);
 
   // 更新地图标记
