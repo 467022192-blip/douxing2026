@@ -155,15 +155,16 @@ export default function Login() {
             role="dialog"
             aria-modal="true"
             className="w-full aspect-[4/5] bg-white rounded-2xl shadow-xl flex flex-col"
-            style={{ maxWidth: 360, height: '40vh' }}
+            style={{ maxWidth: 360, height: '33vh' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex-1 px-6 pt-6 flex flex-col">
               <div className="text-lg font-semibold text-gray-900 text-center">提示</div>
-              <div className="mt-4 text-sm text-gray-600 text-center leading-relaxed">
-                该邮箱可能尚未注册，是否为你创建账号并直接登录？
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-sm text-gray-600 text-left leading-relaxed">
+                  该邮箱可能尚未注册，是否为你创建账号并直接登录？
+                </div>
               </div>
-              <div className="flex-1" />
             </div>
 
             <div className="px-6 pb-6">
