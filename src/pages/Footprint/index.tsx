@@ -1,26 +1,27 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { MapPin, Navigation, X, CheckCircle2, Heart, Route, Database, Plus, Minus, Search, Loader2 } from 'lucide-react';
+import { MapPin, X, CheckCircle2, Heart, Route, Database, Plus, Minus, Search } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useAttractionSearch } from '../../hooks/useAttractionSearch';
 import { getTotalAttractionsCount } from '../../services/supabaseService';
+import { env } from '../../config/env';
 import type { Attraction } from '../../types';
-import type { BMapNamespace, BMapMap, BMapPoint, BMapMarker, BMapLabel } from '../../types/bmap';
+import type { BMapMap, BMapLabel } from '../../types/bmap';
 
 export default function Footprint() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<BMapMap | null>(null);
-  const markersRef = useRef<{ marker: BMapMarker; attraction: Attraction; isUnmarked: boolean }[]>([]);
-  const { checkins, addCheckin, updateCheckin, removeCheckin, loadMockData } = useAppStore();
-  const { user } = useAuthStore();
+  const markersRef = useRef<{ marker: BMapLabel; attraction: Attraction; isUnmarked: boolean }[]>([]);
+  const { checkins } = useAppStore();
   const [filter, setFilter] = useState<'all' | 'visited' | 'want_to_visit'>(() => {
     const wantCount = useAppStore.getState().checkins.filter(c => c.status === 'want_to_visit').length;
     return wantCount > 0 ? 'want_to_visit' : 'all';
   });
   const [isMapLoaded, setIsMapLoaded] = useState(false);
+  const [mapConfigError, setMapConfigError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [totalCount, setTotalCount] = useState(358);
 
@@ -41,20 +42,15 @@ export default function Footprint() {
   }, [filter, checkins]);
 
   // 调用后端搜索 Hook
-  const { data: displayedAttractions, loading } = useAttractionSearch(searchQuery, filterIds);
-
-  // 增加日志记录按钮顺序切换和状态
-  useEffect(() => {
-    const wantCount = checkins.filter(c => c.status === 'want_to_visit').length;
-    console.log(`[Footprint] 状态更新: 当前选中标签='${filter}', 想去数量=${wantCount}, 按钮展示顺序=['全部', '想去', '去过']`);
-  }, [filter, checkins]);
+  const { data: displayedAttractions } = useAttractionSearch(searchQuery, filterIds);
 
   useEffect(() => {
-    // 强制使用公开可用的百度地图测试AK或浏览器端开放API，移除本地AK检测限制
-    // 注意：如果是正式商业上线，需要更换为企业自己的AK
-    const baiduMapAk = import.meta.env.VITE_BAIDU_MAP_AK && import.meta.env.VITE_BAIDU_MAP_AK !== 'your-baidu-map-ak' && import.meta.env.VITE_BAIDU_MAP_AK !== 'mock-key-for-development' 
-      ? import.meta.env.VITE_BAIDU_MAP_AK 
-      : 'E4805d16520de693a3fe707cdc962045'; // 公开演示用 AK
+    const baiduMapAk = env.baiduMapAk;
+
+    if (!baiduMapAk) {
+      setMapConfigError('未配置百度地图 AK（VITE_BAIDU_MAP_AK），地图无法加载');
+      return;
+    }
     
     if (window.BMap) {
       setIsMapLoaded(true);
@@ -79,13 +75,107 @@ export default function Footprint() {
     };
   }, []);
 
+  const updateMarkers = useCallback((shouldFitViewport = false) => {
+    if (!mapInstanceRef.current || !window.BMap) return;
+
+    const map = mapInstanceRef.current;
+
+    markersRef.current.forEach(m => {
+      try {
+        map.removeOverlay(m.marker);
+      } catch (error) {
+        console.warn('Remove overlay failed', error);
+      }
+    });
+    markersRef.current = [];
+
+    const currentZoom = map.getZoom() || 5;
+
+    displayedAttractions.forEach((attraction) => {
+      const point = new window.BMap.Point(attraction.longitude, attraction.latitude);
+
+      const checkin = checkins.find((c) => c.attraction_id === attraction.id);
+      const isUnmarked = !checkin;
+      const isVisited = checkin?.status === 'visited';
+
+      const showLabel = !isUnmarked || currentZoom >= 7;
+
+      let iconSvg = '';
+      if (isVisited) {
+        iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36"><path fill="#10B981" stroke="#ffffff" stroke-width="2" d="M18 2C10.8 2 5 7.8 5 15c0 9 13 19 13 19s13-10 13-19c0-7.2-5.8-13-13-13z"/><path fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" d="M12 15l4 4 8-8"/></svg>`;
+      } else if (!isUnmarked) {
+        iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36"><path fill="#F59E0B" stroke="#ffffff" stroke-width="2" d="M18 2C10.8 2 5 7.8 5 15c0 9 13 19 13 19s13-10 13-19c0-7.2-5.8-13-13-13z"/><path fill="#ffffff" d="M18 19.5l-1-1c-3.5-3.2-5.8-5.3-5.8-7.9 0-2.1 1.7-3.8 3.8-3.8 1.2 0 2.4.6 3 1.5.6-.9 1.8-1.5 3-1.5 2.1 0 3.8 1.7 3.8 3.8 0 2.6-2.3 4.7-5.8 7.9l-1 1z"/></svg>`;
+      } else {
+        iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16"><circle cx="8" cy="8" r="5" fill="#D1D5DB" stroke="#ffffff" stroke-width="2"/></svg>`;
+      }
+
+      const displayName = attraction.short_name || attraction.name;
+
+      const labelContent = `
+        <div style="cursor: pointer; pointer-events: auto; display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
+          ${iconSvg}
+          <div class="custom-bmap-label-text" style="display: ${showLabel ? 'block' : 'none'}; background: rgba(255,255,255,0.95); padding: 2px 6px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-top: 2px; font-size: 12px; font-weight: ${isUnmarked ? 'normal' : 'bold'}; color: ${isUnmarked ? '#6B7280' : '#374151'}; text-align: center; white-space: nowrap;">
+            ${displayName}
+          </div>
+        </div>
+      `;
+
+      const label = new window.BMap.Label(labelContent, {
+        position: point,
+        offset: new window.BMap.Size(0, 0)
+      });
+
+      label.setStyle({
+        border: 'none',
+        backgroundColor: 'transparent',
+        padding: '0',
+        zIndex: isUnmarked ? '1' : '100'
+      });
+
+      const handleClick = (e?: unknown) => {
+        const maybeEvent = e as { domEvent?: { stopPropagation?: () => void } } | undefined;
+        maybeEvent?.domEvent?.stopPropagation?.();
+        navigate(`/attraction/${attraction.id}`);
+      };
+      label.addEventListener('click', handleClick);
+      label.addEventListener('touchend', handleClick);
+
+      map.addOverlay(label);
+      markersRef.current.push({ marker: label, attraction, isUnmarked });
+    });
+
+    if (shouldFitViewport && displayedAttractions.length > 0) {
+      const focusId = searchParams.get('focus');
+      if (focusId) {
+        const focusAttr = displayedAttractions.find(a => a.id === focusId);
+        if (focusAttr) {
+          const pt = new window.BMap.Point(focusAttr.longitude, focusAttr.latitude);
+          map.centerAndZoom(pt, 13);
+          return;
+        }
+      }
+
+      if (displayedAttractions.length === 1) {
+        map.centerAndZoom(new window.BMap.Point(
+          displayedAttractions[0].longitude,
+          displayedAttractions[0].latitude
+        ), 10);
+      } else {
+        const points = displayedAttractions.map(
+          (a) => new window.BMap.Point(a.longitude, a.latitude)
+        );
+        const viewport = map.getViewport(points);
+        map.centerAndZoom(viewport.center, viewport.zoom);
+      }
+    }
+  }, [checkins, displayedAttractions, navigate, searchParams]);
+
   useEffect(() => {
     if (!isMapLoaded || !mapRef.current || !window.BMap) return;
 
     // 初始化地图
     const map = new window.BMap.Map(mapRef.current);
     mapInstanceRef.current = map;
-    (window as any).testMapInstance = map;
 
     // 设置中心点和缩放级别
     const point = new window.BMap.Point(116.397428, 39.90923);
@@ -94,7 +184,7 @@ export default function Footprint() {
     
     // 启用个性化地图样式（可选，让地图看起来更干净）
     try {
-      (map as any).setMapStyleV2({
+      map.setMapStyleV2?.({
         styleJson: [
           {
             "featureType": "poi",
@@ -119,8 +209,8 @@ export default function Footprint() {
           }
         ]
       });
-    } catch(e) {
-      console.warn('Map styling failed', e);
+    } catch (error) {
+      console.warn('Map styling failed', error);
     }
 
     // 允许所有缩放操作，以便用户放大查看详细位置
@@ -133,7 +223,7 @@ export default function Footprint() {
 
     // 添加标记点
     updateMarkers(true);
-  }, [isMapLoaded]);
+  }, [isMapLoaded, updateMarkers]);
   // 监听缩放，动态控制灰色未打卡景区的名称显示，避免层叠
   useEffect(() => {
     if (!mapInstanceRef.current || !isMapLoaded) return;
@@ -156,8 +246,10 @@ export default function Footprint() {
           { "featureType": "background", "elementType": "all", "stylers": { "color": "#f3f4f6ff" } }
         ];
         try {
-          (map as any).setMapStyleV2({ styleJson });
-        } catch(e) { }
+          map.setMapStyleV2?.({ styleJson });
+        } catch (error) {
+          console.warn('Map styling failed', error);
+        }
       }
 
       markersRef.current.forEach(({ marker, attraction, isUnmarked }) => {
@@ -188,7 +280,7 @@ export default function Footprint() {
           </div>
         `;
         
-        (marker as any).setContent(labelContent);
+        marker.setContent(labelContent);
       });
     };
     
@@ -198,152 +290,30 @@ export default function Footprint() {
     return () => {
       map.removeEventListener('zoomend', handleZoomEnd);
     };
-  }, [isMapLoaded]);
+  }, [checkins, isMapLoaded, navigate]);
 
   // 监听打卡数据或过滤条件的变化
   useEffect(() => {
     if (mapInstanceRef.current) {
       updateMarkers(false); // 打卡状态改变时不重置视野
     }
-  }, [displayedAttractions, checkins]);
+  }, [displayedAttractions, checkins, updateMarkers]);
 
   // 仅在切换过滤器时重新适配视野
   useEffect(() => {
-    if (mapInstanceRef.current && displayedAttractions.length > 0) {
-      const points = displayedAttractions.map(
-        (a) => new window.BMap.Point(a.longitude, a.latitude)
-      );
-      const viewport = mapInstanceRef.current.getViewport(points);
-      mapInstanceRef.current.centerAndZoom(viewport.center, viewport.zoom);
+    if (window.BMap) {
+      updateMarkers(true);
     }
-  }, [filter]);
-
-  useEffect(() => {
-    (window as any).handleAttractionClick = (id: string) => {
-      navigate(`/attraction/${id}`);
-    };
-    (window as any).testMapInstance = mapInstanceRef.current;
-    return () => {
-      delete (window as any).handleAttractionClick;
-      delete (window as any).testMapInstance;
-    };
-  }, [navigate]);
-
-  const updateMarkers = (shouldFitViewport = false) => {
-    console.log('updateMarkers called, shouldFitViewport:', shouldFitViewport);
-    if (!mapInstanceRef.current) return;
-
-    const map = mapInstanceRef.current;
-    
-    // 清除旧的标记
-    markersRef.current.forEach(m => {
-      try {
-        map.removeOverlay(m.marker);
-      } catch (e) {
-        // ignore
-      }
-    });
-    markersRef.current = [];
-
-    const currentZoom = map.getZoom() || 5;
-
-    displayedAttractions.forEach((attraction) => {
-      const point = new window.BMap.Point(attraction.longitude, attraction.latitude);
-      
-      const checkin = checkins.find((c) => c.attraction_id === attraction.id);
-      const isUnmarked = !checkin;
-      const isVisited = checkin?.status === 'visited';
-      
-      // 去过或想去的始终显示名称，未打卡的在放大后才显示名称
-      const showLabel = !isUnmarked || currentZoom >= 7;
-
-      // 定义SVG图标
-      let iconSvg = '';
-      if (isVisited) {
-        // 去过：绿色标记带对勾
-        iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36"><path fill="#10B981" stroke="#ffffff" stroke-width="2" d="M18 2C10.8 2 5 7.8 5 15c0 9 13 19 13 19s13-10 13-19c0-7.2-5.8-13-13-13z"/><path fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" d="M12 15l4 4 8-8"/></svg>`;
-      } else if (!isUnmarked) {
-        // 想去：橙色标记带心形
-        iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36"><path fill="#F59E0B" stroke="#ffffff" stroke-width="2" d="M18 2C10.8 2 5 7.8 5 15c0 9 13 19 13 19s13-10 13-19c0-7.2-5.8-13-13-13z"/><path fill="#ffffff" d="M18 19.5l-1-1c-3.5-3.2-5.8-5.3-5.8-7.9 0-2.1 1.7-3.8 3.8-3.8 1.2 0 2.4.6 3 1.5.6-.9 1.8-1.5 3-1.5 2.1 0 3.8 1.7 3.8 3.8 0 2.6-2.3 4.7-5.8 7.9l-1 1z"/></svg>`;
-      } else {
-        // 未标记：小灰点
-        iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16"><circle cx="8" cy="8" r="5" fill="#D1D5DB" stroke="#ffffff" stroke-width="2"/></svg>`;
-      }
-      
-      const displayName = attraction.short_name || attraction.name;
-      
-      const labelContent = `
-        <div onclick="window.handleAttractionClick('${attraction.id}')" 
-             ontouchend="window.handleAttractionClick('${attraction.id}')"
-             style="cursor: pointer; pointer-events: auto; display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%);">
-          ${iconSvg}
-          <div class="custom-bmap-label-text" style="display: ${showLabel ? 'block' : 'none'}; background: rgba(255,255,255,0.95); padding: 2px 6px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-top: 2px; font-size: 12px; font-weight: ${isUnmarked ? 'normal' : 'bold'}; color: ${isUnmarked ? '#6B7280' : '#374151'}; text-align: center; white-space: nowrap;">
-            ${displayName}
-          </div>
-        </div>
-      `;
-
-      // 创建标签作为唯一的覆盖物（包含图标和文字）
-      const label = new window.BMap.Label(labelContent, {
-        position: point,
-        offset: new window.BMap.Size(0, 0)
-      });
-      
-      label.setStyle({
-        border: 'none',
-        backgroundColor: 'transparent',
-        padding: '0',
-        zIndex: isUnmarked ? '1' : '100'
-      });
-
-      // 额外绑定事件以防万一
-      const handleClick = (e?: any) => {
-        if (e && e.domEvent && e.domEvent.stopPropagation) {
-          e.domEvent.stopPropagation();
-        }
-        navigate(`/attraction/${attraction.id}`);
-      };
-      label.addEventListener('click', handleClick);
-      label.addEventListener('touchend', handleClick);
-
-      map.addOverlay(label);
-      markersRef.current.push({ marker: label as any, attraction, isUnmarked });
-    });
-
-    // 调整视野以包含所有标记
-    if (shouldFitViewport && displayedAttractions.length > 0) {
-      // 如果 URL 中有 focus 参数，等待点位更新完毕后居中放大显示
-      const focusId = searchParams.get('focus');
-      if (focusId) {
-        const focusAttr = displayedAttractions.find(a => a.id === focusId);
-        if (focusAttr) {
-          const pt = new window.BMap.Point(focusAttr.longitude, focusAttr.latitude);
-          map.centerAndZoom(pt, 13);
-          return; // Skip setViewport if we are focusing
-        }
-      }
-
-      if (displayedAttractions.length === 1) {
-        map.centerAndZoom(new window.BMap.Point(
-          displayedAttractions[0].longitude,
-          displayedAttractions[0].latitude
-        ), 10);
-      } else {
-        const points = displayedAttractions.map(
-          (a) => new window.BMap.Point(a.longitude, a.latitude)
-        );
-        const viewport = map.getViewport(points);
-        map.centerAndZoom(viewport.center, viewport.zoom);
-      }
-    }
-  };
-
-  const getCheckinStatus = (attractionId: string) => {
-    return checkins.find((c) => c.attraction_id === attractionId);
-  };
+  }, [filter, searchQuery, updateMarkers]);
 
   return (
     <div className="h-screen bg-gray-50 relative overflow-hidden flex flex-col">
+      {mapConfigError && (
+        <div className="absolute inset-0 z-50 bg-white flex flex-col items-center justify-center px-6 text-center">
+          <div className="text-gray-900 font-semibold mb-2">地图加载失败</div>
+          <div className="text-gray-600 text-sm">{mapConfigError}</div>
+        </div>
+      )}
       {/* 顶部控制栏 (搜索 + 筛选) */}
       <div className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-white/90 to-transparent pt-4 pb-6 px-4">
         {/* 全局搜索栏 */}

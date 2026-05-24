@@ -6,6 +6,8 @@ export function useAttractionSearch(keyword: string, filterIds?: string[], provi
   const [data, setData] = useState<Attraction[]>([]);
   const [loading, setLoading] = useState(false);
 
+  const filterIdsStr = filterIds ? filterIds.join(',') : null;
+
   useEffect(() => {
     const handler = setTimeout(async () => {
       setLoading(true);
@@ -20,7 +22,7 @@ export function useAttractionSearch(keyword: string, filterIds?: string[], provi
     }, 300); // 300ms debounce
 
     return () => clearTimeout(handler);
-  }, [keyword, filterIds ? filterIds.join(',') : undefined, province]);
+  }, [keyword, filterIdsStr, province]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { data, loading };
 }

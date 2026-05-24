@@ -1,7 +1,8 @@
 import { supabase as supabaseClient } from '../lib/supabase';
 import type { UserProfile, UserCheckin, Post, Comment, Attraction } from '../types';
+import type { Database } from '../types/supabase';
 
-const supabase = supabaseClient as any;
+const supabase = supabaseClient;
 
 // ==================== 用户相关 ====================
 
@@ -36,9 +37,14 @@ export const getProfile = async (userId: string): Promise<UserProfile | null> =>
  * 更新用户资料
  */
 export const updateProfile = async (userId: string, updates: Partial<UserProfile>) => {
+  const updateData: Database['public']['Tables']['profiles']['Update'] = {
+    ...updates,
+    updated_at: new Date().toISOString()
+  };
+
   const { data, error } = await supabase
     .from('profiles')
-    .update({ ...updates, updated_at: new Date().toISOString() } as any)
+    .update(updateData)
     .eq('id', userId)
     .select()
     .single();
@@ -51,14 +57,16 @@ export const updateProfile = async (userId: string, updates: Partial<UserProfile
  * 创建用户资料（注册时调用）
  */
 export const createProfile = async (userId: string, profile: Partial<UserProfile>) => {
+  const insertData: Database['public']['Tables']['profiles']['Insert'] = {
+    id: userId,
+    ...profile,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+
   const { data, error } = await supabase
     .from('profiles')
-    .insert({
-      id: userId,
-      ...profile,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as any)
+    .insert(insertData)
     .select()
     .single();
 
@@ -179,20 +187,22 @@ export const getUserCheckins = async (userId: string): Promise<UserCheckin[]> =>
     return [];
   }
 
-  return data as UserCheckin[];
+  return data as unknown as UserCheckin[];
 };
 
 /**
  * 添加打卡记录
  */
 export const addCheckin = async (checkin: Omit<UserCheckin, 'id' | 'created_at' | 'updated_at'>) => {
+  const insertData: Database['public']['Tables']['user_checkins']['Insert'] = {
+    ...checkin,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+
   const { data, error } = await supabase
     .from('user_checkins')
-    .insert({
-      ...checkin,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as any)
+    .insert(insertData)
     .select(`
       *,
       attraction:attractions(*)
@@ -200,19 +210,21 @@ export const addCheckin = async (checkin: Omit<UserCheckin, 'id' | 'created_at' 
     .single();
 
   if (error) throw error;
-  return data as UserCheckin;
+  return data as unknown as UserCheckin;
 };
 
 /**
  * 更新打卡记录
  */
 export const updateCheckin = async (id: string, updates: Partial<UserCheckin>) => {
+  const updateData: Database['public']['Tables']['user_checkins']['Update'] = {
+    ...updates,
+    updated_at: new Date().toISOString()
+  };
+
   const { data, error } = await supabase
     .from('user_checkins')
-    .update({
-      ...updates,
-      updated_at: new Date().toISOString(),
-    } as any)
+    .update(updateData)
     .eq('id', id)
     .select(`
       *,
@@ -221,7 +233,7 @@ export const updateCheckin = async (id: string, updates: Partial<UserCheckin>) =
     .single();
 
   if (error) throw error;
-  return data as UserCheckin;
+  return data as unknown as UserCheckin;
 };
 
 /**
@@ -262,9 +274,25 @@ export const getPosts = async (page = 1, pageSize = 10): Promise<Post[]> => {
     return [];
   }
 
+  const getCount = (value: unknown): number => {
+    if (Array.isArray(value)) {
+      const first = value[0] as unknown;
+      if (first && typeof first === 'object' && 'count' in (first as Record<string, unknown>)) {
+        const count = (first as Record<string, unknown>).count;
+        return typeof count === 'number' ? count : 0;
+      }
+      return 0;
+    }
+    if (value && typeof value === 'object' && 'count' in (value as Record<string, unknown>)) {
+      const count = (value as Record<string, unknown>).count;
+      return typeof count === 'number' ? count : 0;
+    }
+    return 0;
+  };
+
   // Fetch attraction details separately since we removed the foreign key
   const attractionIds = [...new Set(data.map(post => post.attraction_id))];
-  let attractionsMap: Record<string, any> = {};
+  let attractionsMap: Record<string, Attraction> = {};
   
   if (attractionIds.length > 0) {
     const { data: attractionsData } = await supabase
@@ -273,22 +301,26 @@ export const getPosts = async (page = 1, pageSize = 10): Promise<Post[]> => {
       .in('id', attractionIds);
       
     if (attractionsData) {
-      attractionsMap = attractionsData.reduce((acc, attr) => {
-        acc[attr.id] = attr;
+      attractionsMap = attractionsData.reduce<Record<string, Attraction>>((acc, attr) => {
+        acc[(attr as Attraction).id] = attr as Attraction;
         return acc;
       }, {});
     }
   }
 
   // Format the counts and attach attractions
-  const formattedData = data.map((post: any) => ({
-    ...post,
-    attraction: attractionsMap[post.attraction_id] || null,
-    likes_count: post.likes?.[0]?.count || post.likes?.count || 0,
-    comments_count: post.comments?.[0]?.count || post.comments?.count || 0,
-  }));
+  const formattedData = data.map((post) => {
+    const postRecord = post as unknown as Record<string, unknown>;
 
-  return formattedData as Post[];
+    return {
+      ...post,
+      attraction: attractionsMap[post.attraction_id] || null,
+      likes_count: getCount(postRecord.likes),
+      comments_count: getCount(postRecord.comments),
+    };
+  });
+
+  return formattedData as unknown as Post[];
 };
 
 /**
@@ -310,7 +342,7 @@ export const getUserPosts = async (userId: string): Promise<Post[]> => {
   }
 
   const attractionIds = [...new Set(data.map(post => post.attraction_id))];
-  let attractionsMap: Record<string, any> = {};
+  let attractionsMap: Record<string, Attraction> = {};
   
   if (attractionIds.length > 0) {
     const { data: attractionsData } = await supabase
@@ -319,32 +351,34 @@ export const getUserPosts = async (userId: string): Promise<Post[]> => {
       .in('id', attractionIds);
       
     if (attractionsData) {
-      attractionsMap = attractionsData.reduce((acc, attr) => {
-        acc[attr.id] = attr;
+      attractionsMap = attractionsData.reduce<Record<string, Attraction>>((acc, attr) => {
+        acc[(attr as Attraction).id] = attr as Attraction;
         return acc;
       }, {});
     }
   }
 
-  const formattedData = data.map((post: any) => ({
+  const formattedData = data.map((post) => ({
     ...post,
     attraction: attractionsMap[post.attraction_id] || null,
   }));
 
-  return formattedData as Post[];
+  return formattedData as unknown as Post[];
 };
 
 /**
  * 创建动态
  */
 export const createPost = async (post: Omit<Post, 'id' | 'created_at' | 'updated_at' | 'likes_count' | 'comments_count' | 'is_liked'>) => {
+  const insertData: Database['public']['Tables']['posts']['Insert'] = {
+    ...post,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+
   const { data, error } = await supabase
     .from('posts')
-    .insert({
-      ...post,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as any)
+    .insert(insertData)
     .select(`
       *,
       user:profiles(id, nickname, avatar_url, is_private)
@@ -367,7 +401,7 @@ export const createPost = async (post: Omit<Post, 'id' | 'created_at' | 'updated
     }
   }
   
-  return { ...data, attraction } as Post;
+  return { ...data, attraction } as unknown as Post;
 };
 
 /**
@@ -402,20 +436,22 @@ export const getComments = async (postId: string): Promise<Comment[]> => {
     return [];
   }
 
-  return data as Comment[];
+  return data as unknown as Comment[];
 };
 
 /**
  * 添加评论
  */
 export const addComment = async (comment: Omit<Comment, 'id' | 'created_at' | 'updated_at'>) => {
+  const insertData: Database['public']['Tables']['comments']['Insert'] = {
+    ...comment,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+
   const { data, error } = await supabase
     .from('comments')
-    .insert({
-      ...comment,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as any)
+    .insert(insertData)
     .select(`
       *,
       user:profiles(id, nickname, avatar_url, is_private)
@@ -423,7 +459,7 @@ export const addComment = async (comment: Omit<Comment, 'id' | 'created_at' | 'u
     .single();
 
   if (error) throw error;
-  return data as Comment;
+  return data as unknown as Comment;
 };
 
 // ==================== 点赞相关 ====================
@@ -450,13 +486,15 @@ export const checkLike = async (postId: string, userId: string): Promise<boolean
  * 添加点赞
  */
 export const addLike = async (postId: string, userId: string) => {
+  const insertData: Database['public']['Tables']['likes']['Insert'] = {
+    post_id: postId,
+    user_id: userId,
+    created_at: new Date().toISOString()
+  };
+
   const { error } = await supabase
     .from('likes')
-    .insert({
-      post_id: postId,
-      user_id: userId,
-      created_at: new Date().toISOString(),
-    } as any);
+    .insert(insertData);
 
   if (error) throw error;
 };

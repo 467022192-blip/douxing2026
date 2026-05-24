@@ -6,7 +6,6 @@ import {
   Navigation,
   CheckCircle2,
   Car,
-  Clock,
   Train,
   Plane,
   Footprints,
@@ -25,7 +24,7 @@ import { useAppStore } from '../../stores/appStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useAttractionSearch } from '../../hooks/useAttractionSearch';
 import type { Attraction } from '../../types';
-import type { BMapNamespace, BMapMap, BMapPoint, BMapMarker, BMapLabel, BMapPolyline } from '../../types/bmap';
+import type { BMapMap, BMapPoint, BMapMarker, BMapLabel, BMapPolyline } from '../../types/bmap';
 
 interface RoutePoint {
   attraction: Attraction;
@@ -103,6 +102,7 @@ export default function RoutePlanning() {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<BMapMap | null>(null);
   const routeLinesRef = useRef<BMapPolyline[]>([]);
+  const routeLabelsRef = useRef<BMapLabel[]>([]);
   const markersRef = useRef<BMapMarker[]>([]);
   const { checkins, addCheckin, removeCheckin } = useAppStore();
   const { isAuthenticated, user } = useAuthStore();
@@ -120,15 +120,7 @@ export default function RoutePlanning() {
   const [showSavedRoutes, setShowSavedRoutes] = useState(false);
   const [expandedSegments, setExpandedSegments] = useState<number[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // 计算想去的数量，并记录状态和按钮顺序日志
-  const wantCount = useMemo(() => checkins.filter(c => c.status === 'want_to_visit').length, [checkins]);
-  
-  useEffect(() => {
-    const buttonOrder = wantCount >= 2 ? "['想去', '推荐', '去过']" : "['推荐', '想去', '去过']";
-    console.log(`[RoutePlanning] 状态更新: 当前选中标签='${filter}', 想去数量=${wantCount}, 动态按钮顺序=${buttonOrder}`);
-  }, [filter, wantCount]);
-  
+
   // 拖拽排序状态
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -136,7 +128,6 @@ export default function RoutePlanning() {
   // 浮层展开/收起状态
   const [isPanelExpanded, setIsPanelExpanded] = useState(true);
   const panelRef = useRef<HTMLDivElement>(null);
-  const [panelHeight, setPanelHeight] = useState<number>(400);
   const touchStartY = useRef<number>(0);
   const touchCurrentY = useRef<number>(0);
   const isDraggingRef = useRef<boolean>(false);
@@ -229,7 +220,7 @@ export default function RoutePlanning() {
   }, [checkins, filter]);
 
   // 调用后端搜索 Hook 获取景区数据
-  const { data: fetchedAttractions, loading } = useAttractionSearch(searchQuery, filterIds);
+  const { data: fetchedAttractions } = useAttractionSearch(searchQuery, filterIds);
 
   // 获取可选择的景区（如果 filter 是 all，且没有搜索，则过滤掉已经 visited 的）
   const availableAttractions = useMemo(() => {
@@ -703,18 +694,36 @@ export default function RoutePlanning() {
       }, 3000); // 3秒超时，避免阻塞太久
 
       const driving = new window.BMap.DrivingRoute(mapInstanceRef.current, {
-        onSearchComplete: (results: any) => {
+        onSearchComplete: (results: unknown) => {
           clearTimeout(timeoutId);
           if (driving.getStatus() === 0) { // BMAP_STATUS_SUCCESS
-            const plan = results.getPlan(0);
+            const resultsObj = results as {
+              getPlan?: (index: number) => {
+                getRoute: (index: number) => { getPath: () => BMapPoint[] };
+                getDistance: (human: boolean) => string;
+                getDuration: (human: boolean) => string;
+              };
+            };
+
+            if (!resultsObj.getPlan) {
+              resolve({
+                path: [start, end],
+                distanceStr: '未知',
+                durationStr: '未知',
+                durationMinutes: 0,
+                distanceKm: 0
+              });
+              return;
+            }
+
+            const plan = resultsObj.getPlan(0);
             const route = plan.getRoute(0);
             const path = route.getPath();
-            const distanceStr = plan.getDistance(true); // e.g. "15公里"
-            const durationStr = plan.getDuration(true); // e.g. "30分钟"
-            
-            // 解析数值（粗略）
-            const distNum = parseFloat(plan.getDistance(false)) / 1000; // in km
-            const durNum = Math.round(parseFloat(plan.getDuration(false)) / 60); // in minutes
+            const distanceStr = plan.getDistance(true);
+            const durationStr = plan.getDuration(true);
+
+            const distNum = parseFloat(plan.getDistance(false)) / 1000;
+            const durNum = Math.round(parseFloat(plan.getDuration(false)) / 60);
 
             resolve({
               path,
@@ -738,42 +747,6 @@ export default function RoutePlanning() {
       driving.search(start, end);
     });
   };
-  const generateCurvePoints = (start: BMapPoint, end: BMapPoint, segments: number = 20): BMapPoint[] => {
-    const points: BMapPoint[] = [];
-    
-    // 计算中点，并添加垂直偏移来创建曲线效果
-    const midLng = (start.lng + end.lng) / 2;
-    const midLat = (start.lat + end.lat) / 2;
-    
-    // 计算垂直偏移量（根据距离调整）
-    const distance = Math.sqrt(
-      Math.pow(end.lng - start.lng, 2) + Math.pow(end.lat - start.lat, 2)
-    );
-    const offset = distance * 0.15; // 15% 的偏移量
-    
-    // 计算垂直方向
-    const angle = Math.atan2(end.lat - start.lat, end.lng - start.lng);
-    const perpAngle = angle + Math.PI / 2;
-    
-    const controlLng = midLng + Math.cos(perpAngle) * offset;
-    const controlLat = midLat + Math.sin(perpAngle) * offset;
-    
-    // 生成贝塞尔曲线点
-    for (let i = 0; i <= segments; i++) {
-      const t = i / segments;
-      // 二次贝塞尔曲线公式
-      const lng = Math.pow(1 - t, 2) * start.lng + 
-                  2 * (1 - t) * t * controlLng + 
-                  Math.pow(t, 2) * end.lng;
-      const lat = Math.pow(1 - t, 2) * start.lat + 
-                  2 * (1 - t) * t * controlLat + 
-                  Math.pow(t, 2) * end.lat;
-      points.push(new window.BMap.Point(lng, lat));
-    }
-    
-    return points;
-  };
-
   // 在地图上绘制路线
   const drawRouteOnMap = (plan: RoutePlan) => {
     if (!mapInstanceRef.current || plan.points.length < 2) return;
@@ -783,15 +756,12 @@ export default function RoutePlanning() {
     routeLinesRef.current.forEach(line => map.removeOverlay(line));
     routeLinesRef.current = [];
 
-    // 获取之前添加的路线文字标签并移除（如果存在的话）
-    if ((map as any)._routeLabels) {
-      (map as any)._routeLabels.forEach((label: BMapLabel) => map.removeOverlay(label));
-    }
-    (map as any)._routeLabels = [];
+    routeLabelsRef.current.forEach(label => map.removeOverlay(label));
+    routeLabelsRef.current = [];
 
     // 绘制真实驾车连线 - 使用蓝色系
     for (let i = 0; i < plan.segments.length; i++) {
-      const segment = plan.segments[i] as any;
+      const segment = plan.segments[i];
       const pathPoints = segment.realPath || [];
 
       if (pathPoints.length > 0) {
@@ -829,7 +799,7 @@ export default function RoutePlanning() {
         });
 
         map.addOverlay(label);
-        (map as any)._routeLabels.push(label);
+        routeLabelsRef.current.push(label);
       }
     }
 
@@ -894,12 +864,9 @@ export default function RoutePlanning() {
       routeLinesRef.current = [];
       markersRef.current.forEach(marker => mapInstanceRef.current?.removeOverlay(marker));
       markersRef.current = [];
-      
-      // 清理路段标签
-      if ((mapInstanceRef.current as any)._routeLabels) {
-        (mapInstanceRef.current as any)._routeLabels.forEach((label: BMapLabel) => mapInstanceRef.current?.removeOverlay(label));
-        (mapInstanceRef.current as any)._routeLabels = [];
-      }
+
+      routeLabelsRef.current.forEach(label => mapInstanceRef.current?.removeOverlay(label));
+      routeLabelsRef.current = [];
     }
   };
 
@@ -1321,7 +1288,7 @@ export default function RoutePlanning() {
         <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-end justify-center">
           <div className="bg-white w-full max-w-md rounded-t-2xl max-h-[70vh] overflow-hidden">
             <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="font-semibold text-gray-800">已存路线 ({savedRoutes.length})</h3>
+              <h3 className="font-semibold text-gray-800">已存路线 ({filteredSavedRoutes.length})</h3>
               <button
                 onClick={() => setShowSavedRoutes(false)}
                 className="p-2 hover:bg-gray-100 rounded-full"
@@ -1330,7 +1297,7 @@ export default function RoutePlanning() {
               </button>
             </div>
             <div className="overflow-y-auto max-h-[50vh]">
-              {savedRoutes.length === 0 ? (
+              {filteredSavedRoutes.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <Bookmark size={48} className="mx-auto text-gray-300 mb-4" />
                   <p>暂无保存的路线</p>
@@ -1338,7 +1305,7 @@ export default function RoutePlanning() {
                 </div>
               ) : (
                 <div className="p-4 space-y-3">
-                  {savedRoutes.map((route) => {
+                  {filteredSavedRoutes.map((route) => {
                     const TransportIcon = getTransportInfo(route.mainTransportMode).icon;
                     return (
                         <div

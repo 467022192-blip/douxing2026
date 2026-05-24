@@ -1,16 +1,25 @@
-import { useEffect } from 'react';
+import { useEffect, Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import BottomNav from './components/BottomNav';
-import Home from './pages/Home/index';
-import Footprint from './pages/Footprint';
-import RoutePlanning from './pages/RoutePlanning';
-import AttractionDetail from './pages/AttractionDetail/index';
-import Space from './pages/Space';
-import Profile from './pages/Profile';
-import Login from './pages/Login';
 import { initTestHelpers } from './utils/testHelpers';
 import { useAuthStore } from './stores/authStore';
 import { useAppStore } from './stores/appStore';
+
+// Code Splitting with React.lazy
+const Home = lazy(() => import('./pages/Home/index'));
+const Footprint = lazy(() => import('./pages/Footprint'));
+const RoutePlanning = lazy(() => import('./pages/RoutePlanning'));
+const AttractionDetail = lazy(() => import('./pages/AttractionDetail/index'));
+const Space = lazy(() => import('./pages/Space'));
+const Profile = lazy(() => import('./pages/Profile'));
+const Login = lazy(() => import('./pages/Login'));
+
+// Loading Fallback Component
+const PageLoader = () => (
+  <div className="flex items-center justify-center min-h-screen bg-gray-50">
+    <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+  </div>
+);
 
 // 路由配置组件
 function AppRoutes() {
@@ -42,15 +51,17 @@ function AppRoutes() {
 
   return (
     <div className="max-w-md mx-auto bg-gray-50 min-h-screen">
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/footprint" element={<Footprint />} />
-        <Route path="/route-planning" element={<RoutePlanning />} />
-        <Route path="/attraction/:id" element={<AttractionDetail />} />
-        <Route path="/space" element={<Space />} />
-        <Route path="/profile" element={<Profile />} />
-        <Route path="/login" element={<Login />} />
-      </Routes>
+      <Suspense fallback={<PageLoader />}>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/footprint" element={<Footprint />} />
+          <Route path="/route-planning" element={<RoutePlanning />} />
+          <Route path="/attraction/:id" element={<AttractionDetail />} />
+          <Route path="/space" element={<Space />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/login" element={<Login />} />
+        </Routes>
+      </Suspense>
       {!hideBottomNav && <BottomNav />}
     </div>
   );

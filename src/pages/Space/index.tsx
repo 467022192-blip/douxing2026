@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Heart, MessageCircle, MapPin, Image as ImageIcon, X, Send, Plus, Camera, Loader2, RefreshCw } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useAuthStore } from '../../stores/authStore';
@@ -32,7 +32,7 @@ export default function Space() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchPostsData = async (pageNum: number, isRefresh = false) => {
+  const fetchPostsData = useCallback(async (pageNum: number, isRefresh = false) => {
     try {
       if (isRefresh) {
         setIsRefreshing(true);
@@ -64,7 +64,11 @@ export default function Space() {
       if (isRefresh || pageNum === 1) {
         setPosts(finalPosts);
       } else {
-        setPosts(prev => [...prev, ...finalPosts]);
+        setPosts(prev => {
+          // Filter out duplicates just in case
+          const newPosts = finalPosts.filter(p => !prev.some(ep => ep.id === p.id));
+          return [...prev, ...newPosts];
+        });
       }
     } catch (error) {
       console.error('获取动态失败:', error);
@@ -73,12 +77,12 @@ export default function Space() {
       setIsRefreshing(false);
       setIsLoadingMore(false);
     }
-  };
+  }, [isAuthenticated, user]);
 
   useEffect(() => {
     setPage(1);
     fetchPostsData(1);
-  }, [isAuthenticated, user]);
+  }, [isAuthenticated, user, fetchPostsData]);
 
   const handleRefresh = () => {
     setPage(1);
@@ -195,6 +199,14 @@ export default function Space() {
     setPreviewUrls((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const handleImageClick = (e: React.MouseEvent, post: Post, imageIndex: number) => {
+    e.stopPropagation();
+    if (post.images && post.images[imageIndex]) {
+      // For now just console log, you can implement a full screen preview later
+      console.log('Preview image:', post.images[imageIndex]);
+    }
+  };
+
   const submitPost = async () => {
     if (!postContent.trim() && selectedFiles.length === 0) return;
     if (!selectedAttraction || !user) return;
@@ -218,9 +230,10 @@ export default function Space() {
 
       setPosts((prev) => [{ ...newPost, is_liked: false, likes_count: 0, comments_count: 0 }, ...prev]);
       closeCreateModal();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('发布动态失败:', error);
-      alert(`发布动态失败，请重试\n${error.message || JSON.stringify(error)}`);
+      const message = error instanceof Error ? error.message : JSON.stringify(error);
+      alert(`发布动态失败，请重试\n${message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -327,14 +340,15 @@ export default function Space() {
               {/* 图片 */}
               {post.images && post.images.length > 0 && (
                 <div className="grid grid-cols-3 gap-2 mb-3">
-                  {post.images.map((image, index) => (
-                    <div
-                      key={index}
-                      className="aspect-square rounded-lg bg-gray-100 overflow-hidden"
+                  {post.images.map((image, idx) => (
+                    <div 
+                      key={idx} 
+                      className="relative aspect-square cursor-pointer overflow-hidden rounded-lg"
+                      onClick={(e) => handleImageClick(e, post, idx)}
                     >
                       <img
                         src={image}
-                        alt={`图片${index + 1}`}
+                        alt={`图片${idx + 1}`}
                         className="w-full h-full object-cover"
                       />
                     </div>

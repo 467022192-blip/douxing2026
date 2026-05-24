@@ -58,6 +58,7 @@ export interface Database {
           image_url?: string | null;
           created_at?: string | null;
         };
+        Relationships: [];
       };
       profiles: {
         Row: {
@@ -90,6 +91,7 @@ export interface Database {
           created_at?: string | null;
           updated_at?: string | null;
         };
+        Relationships: [];
       };
       user_checkins: {
         Row: {
@@ -122,6 +124,7 @@ export interface Database {
           created_at?: string | null;
           updated_at?: string | null;
         };
+        Relationships: [];
       };
       posts: {
         Row: {
@@ -154,6 +157,7 @@ export interface Database {
           created_at?: string | null;
           updated_at?: string | null;
         };
+        Relationships: [];
       };
       likes: {
         Row: {
@@ -174,6 +178,7 @@ export interface Database {
           user_id?: string;
           created_at?: string | null;
         };
+        Relationships: [];
       };
       comments: {
         Row: {
@@ -200,6 +205,7 @@ export interface Database {
           created_at?: string | null;
           updated_at?: string | null;
         };
+        Relationships: [];
       };
     };
     Views: {
@@ -209,6 +215,9 @@ export interface Database {
       [_ in never]: never;
     };
     Enums: {
+      [_ in never]: never;
+    };
+    CompositeTypes: {
       [_ in never]: never;
     };
   };

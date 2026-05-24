@@ -2,8 +2,6 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   MapPin,
-  Heart,
-  Image as ImageIcon,
   Settings,
   ChevronRight,
   LogOut,
@@ -15,11 +13,10 @@ import {
   Award,
   Calendar,
   TrendingUp,
-  CloudUpload,
+  Database
 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useAuthStore } from '../../stores/authStore';
-import { Database } from 'lucide-react';
 import { searchAttractions } from '../../services/supabaseService';
 import type { Attraction } from '../../types';
 

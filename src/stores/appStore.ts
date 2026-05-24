@@ -89,7 +89,6 @@ export const useAppStore = create<AppState>()(
 
           const { data, error } = await supabase
             .from('user_checkins')
-            // @ts-ignore
             .insert([insertData])
             .select()
             .single();
@@ -107,10 +106,11 @@ export const useAppStore = create<AppState>()(
       // 更新打卡
       updateCheckin: async (id, updates) => {
         try {
+          const { attraction: _attraction, ...dbUpdates } = updates;
+          void _attraction;
           const { data, error } = await supabase
             .from('user_checkins')
-            // @ts-ignore
-            .update(updates)
+            .update(dbUpdates)
             .eq('id', id)
             .select()
             .single();

@@ -89,6 +89,9 @@ export default function AttractionDetail() {
     window.open(`https://www.douyin.com/search/${searchQuery}`, '_blank');
   };
 
+  const descriptionText = attraction.tips || attraction.description || '暂无详细简介。这可能是一个非常神秘的美丽景点，等待你去亲自探索。';
+  const isLongText = descriptionText.length > 100;
+
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* 头部导航 */}
@@ -198,9 +201,9 @@ export default function AttractionDetail() {
           </h3>
           <div className="relative">
             <p className={`text-gray-600 text-sm leading-relaxed ${isExpanded ? '' : 'line-clamp-4'}`}>
-              {attraction.tips || attraction.description || '暂无详细简介。这可能是一个非常神秘的美丽景点，等待你去亲自探索。'}
+              {descriptionText}
             </p>
-            {(attraction.tips || attraction.description) && (attraction.tips || attraction.description)!.length > 100 && (
+            {isLongText && (
               <button 
                 onClick={() => setIsExpanded(!isExpanded)}
                 className="text-emerald-500 text-xs font-medium mt-1 flex items-center gap-0.5"

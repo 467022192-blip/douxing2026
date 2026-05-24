@@ -65,7 +65,7 @@ export const generateUltraLongCheckins = (): UserCheckin[] => {
   const now = new Date().toISOString();
   const ultraLongAttractions = getUltraLongRouteAttractions();
 
-  return ultraLongAttractions.map((attraction, index) => ({
+  return ultraLongAttractions.map((attraction) => ({
     id: `checkin-ultra-${attraction.id}`,
     user_id: 'mock-user',
     attraction_id: attraction.id,

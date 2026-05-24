@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { supabase } from '../lib/supabase';
 import type { UserProfile } from '../types';
 import type { Database } from '../types/supabase';
+import { getAppPublicUrl } from '../config/env';
 
 interface AuthState {
   user: UserProfile | null;
@@ -60,7 +61,7 @@ export const useAuthStore = create<AuthState>()(
           }
           
           // 监听认证状态变化
-          supabase.auth.onAuthStateChange(async (event, session) => {
+          supabase.auth.onAuthStateChange(async (_event, session) => {
             if (session?.user) {
               // 简单重试机制，防止注册时 profile 还没写入
               let profile = null;
@@ -96,7 +97,7 @@ export const useAuthStore = create<AuthState>()(
       // 邮箱登录
       loginWithEmail: async (email: string, password: string) => {
         try {
-          const { data, error } = await supabase.auth.signInWithPassword({
+          const { error } = await supabase.auth.signInWithPassword({
             email,
             password,
           });
@@ -116,7 +117,7 @@ export const useAuthStore = create<AuthState>()(
             email,
             password,
             options: {
-              emailRedirectTo: window.location.origin,
+              emailRedirectTo: getAppPublicUrl(),
             }
           });
           
@@ -135,7 +136,6 @@ export const useAuthStore = create<AuthState>()(
             
             const { error: profileError } = await supabase
               .from('profiles')
-              // @ts-ignore
               .upsert(profileData);
               
             if (profileError) {
@@ -184,7 +184,6 @@ export const useAuthStore = create<AuthState>()(
           
           const { error } = await supabase
             .from('profiles')
-            // @ts-ignore
             .update(updateData)
             .eq('id', user.id);
             
@@ -205,9 +204,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'auth-storage', // 去掉 -local，表示这是真实后端的存储
-      partialize: (state) => ({ 
-        // 不再持久化 user 和 isAuthenticated，让 initAuth 每次启动时通过 token 去后端验证，保证安全性
-      }),
+      partialize: () => ({}),
     }
   )
 );

@@ -11,7 +11,9 @@
     "check": "tsc -b --noEmit"
   },
   "dependencies": {
+    "@sentry/react": "^10.53.1",
     "@supabase/supabase-js": "^2.106.1",
+    "cheerio": "^1.2.0",
     "clsx": "^2.1.1",
     "dayjs": "^1.11.20",
     "framer-motion": "^12.40.0",
@@ -19,7 +21,10 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.3.0",
+    "react-virtualized-auto-sizer": "^2.0.3",
+    "react-window": "^2.2.7",
     "tailwind-merge": "^3.0.2",
+    "xlsx": "^0.18.5",
     "zustand": "^5.0.13"
   },
   "devDependencies": {
@@ -27,8 +32,6 @@
     "@types/node": "^22.15.30",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
-    "@types/react-virtualized-auto-sizer": "^1.0.4",
-    "@types/react-window": "^1.8.8",
     "@vitejs/plugin-react": "^4.4.1",
     "autoprefixer": "^10.4.21",
     "babel-plugin-react-dev-locator": "^1.0.0",

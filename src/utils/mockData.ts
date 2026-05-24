@@ -1,7 +1,7 @@
-import type { UserCheckin } from '../types';
+import type { Attraction, UserCheckin } from '../types';
 import { MOCK_ATTRACTIONS } from '../data/mockAttractions';
 
-const findAttractions = (count: number, filterFn: (a: any) => boolean) => {
+const findAttractions = (count: number, filterFn: (a: Attraction) => boolean) => {
   return MOCK_ATTRACTIONS.filter(filterFn).slice(0, count);
 };
 

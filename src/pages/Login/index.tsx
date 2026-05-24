@@ -53,7 +53,7 @@ export default function Login() {
           navigate('/profile');
         }
       }
-    } catch (err) {
+    } catch {
       setError('操作失败，请稍后重试');
     } finally {
       setIsLoading(false);

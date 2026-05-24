@@ -279,7 +279,20 @@ export const profileScenario = () => {
  * 将所有测试函数挂载到window对象，方便在浏览器控制台调用
  */
 export const initTestHelpers = () => {
-  (window as any).testScenarios = {
+  type TestScenarios = {
+    likeFlow: typeof testLikeFlow;
+    commentFlow: typeof testCommentFlow;
+    fullScenario: typeof fullScenario;
+    guestScenario: typeof guestScenario;
+    profileScenario: typeof profileScenario;
+    login: typeof mockLogin;
+    logout: typeof mockLogout;
+    getAuthStatus: typeof getAuthStatus;
+    addMockCheckins: typeof addMockCheckins;
+    clearCheckins: typeof clearCheckins;
+  };
+
+  (window as unknown as { testScenarios: TestScenarios }).testScenarios = {
     likeFlow: testLikeFlow,
     commentFlow: testCommentFlow,
     fullScenario: fullScenario,
