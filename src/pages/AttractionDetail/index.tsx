@@ -4,6 +4,7 @@ import { ChevronLeft, MapPin, Clock, Ticket, CheckCircle2, Heart, ExternalLink, 
 import { useAppStore } from '../../stores/appStore';
 import { useAuthStore } from '../../stores/authStore';
 import { getAttractionsById } from '../../services/supabaseService';
+import { getLocalCache, setLocalCache } from '../../utils/localCache';
 import type { Attraction } from '../../types';
 
 export default function AttractionDetail() {
@@ -16,6 +17,8 @@ export default function AttractionDetail() {
   const [loadError, setLoadError] = useState<string>('');
   const [isFetchingDetails, setIsFetchingDetails] = useState(false);
 
+  const cacheKey = id ? `attractions:detail:${id}` : '';
+
   const { checkins, addCheckin, updateCheckin } = useAppStore();
   const { isAuthenticated } = useAuthStore();
 
@@ -27,8 +30,13 @@ export default function AttractionDetail() {
     }
 
     const preview = (location.state as { attraction?: Attraction } | null)?.attraction;
+    const cached = cacheKey ? getLocalCache<Attraction>(cacheKey) : null;
     if (preview) {
       setAttraction(preview);
+      setLoading(false);
+      setIsFetchingDetails(true);
+    } else if (cached) {
+      setAttraction(cached);
       setLoading(false);
       setIsFetchingDetails(true);
     } else {
@@ -47,11 +55,14 @@ export default function AttractionDetail() {
       .then((data) => {
         if (!active) return;
         setAttraction(data);
+        if (cacheKey) {
+          setLocalCache(cacheKey, data, 24 * 60 * 60 * 1000);
+        }
       })
       .catch((err) => {
         if (!active) return;
         console.error('获取景区详情失败:', err);
-        if (!preview) {
+        if (!preview && !cached) {
           setLoadError('景区详情加载失败，请重试');
         }
       })
@@ -64,7 +75,7 @@ export default function AttractionDetail() {
     return () => {
       active = false;
     };
-  }, [id, location.state]);
+  }, [cacheKey, id, location.state]);
 
   if (loading) {
     return (
@@ -140,9 +151,7 @@ export default function AttractionDetail() {
 
   const descriptionText = (() => {
     const tips = attraction.tips?.trim();
-    const desc = attraction.description?.trim();
     if (tips) return tips;
-    if (desc) return desc;
     if (isFetchingDetails) return '简介加载中…';
     return '暂无详细简介。这可能是一个非常神秘的美丽景点，等待你去亲自探索。';
   })();

@@ -77,7 +77,7 @@ export const createProfile = async (userId: string, profile: Partial<UserProfile
 // ==================== 景区相关 ====================
 
 const ATTRACTIONS_LIST_SELECT =
-  'id,name,province,city,latitude,longitude,image_url,ticket_price,open_time' as const;
+  'id,name,province,city,latitude,longitude,image_url,ticket_price,open_time,tips' as const;
 
 /**
  * 获取所有景区
@@ -112,7 +112,7 @@ export const getAttractionsByProvince = async (province: string): Promise<Attrac
 export const getAttractionsById = async (id: string): Promise<Attraction> => {
   const { data, error } = await supabase
     .from('attractions')
-    .select('id,name,province,city,address,latitude,longitude,image_url,description,features,tips,ticket_price,open_time,created_at')
+    .select('id,name,province,city,address,latitude,longitude,image_url,ticket_price,open_time,tips')
     .eq('id', id)
     .single();
 
