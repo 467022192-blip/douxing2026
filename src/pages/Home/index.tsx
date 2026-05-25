@@ -360,7 +360,7 @@ export default function Home() {
                   <div style={{ ...style, paddingBottom: 16 }}>
                     <div
                       className="relative rounded-2xl shadow-sm active:scale-[0.98] transition-transform cursor-pointer h-full overflow-hidden group"
-                      onClick={() => rest.navigate(`/attraction/${attraction.id}`)}
+                      onClick={() => rest.navigate(`/attraction/${attraction.id}`, { state: { attraction } })}
                     >
                       <img
                         src={rest.getOptimizedImageUrl(attraction.image_url)}

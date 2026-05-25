@@ -112,7 +112,7 @@ export const getAttractionsByProvince = async (province: string): Promise<Attrac
 export const getAttractionsById = async (id: string): Promise<Attraction> => {
   const { data, error } = await supabase
     .from('attractions')
-    .select('*')
+    .select('id,name,province,city,address,latitude,longitude,image_url,description,features,tips,ticket_price,open_time,created_at')
     .eq('id', id)
     .single();
 

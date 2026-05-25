@@ -125,7 +125,7 @@ export default function Footprint() {
       const handleClick = (e?: unknown) => {
         const maybeEvent = e as { domEvent?: { stopPropagation?: () => void } } | undefined;
         maybeEvent?.domEvent?.stopPropagation?.();
-        navigate(`/attraction/${attraction.id}`);
+        navigate(`/attraction/${attraction.id}`, { state: { attraction } });
       };
       label.addEventListener('click', handleClick);
       label.addEventListener('touchend', handleClick);

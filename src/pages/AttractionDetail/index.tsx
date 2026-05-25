@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ChevronLeft, MapPin, Clock, Ticket, CheckCircle2, Heart, ExternalLink, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useAuthStore } from '../../stores/authStore';
@@ -9,33 +9,76 @@ import type { Attraction } from '../../types';
 export default function AttractionDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const [attraction, setAttraction] = useState<Attraction | null>(null);
   const [loading, setLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [loadError, setLoadError] = useState<string>('');
 
   const { checkins, addCheckin, updateCheckin } = useAppStore();
   const { isAuthenticated } = useAuthStore();
 
   useEffect(() => {
-    if (!id) return;
-    setLoading(true);
-    getAttractionsById(id)
-      .then(data => {
+    if (!id) {
+      setLoading(false);
+      setLoadError('缺少景区 ID');
+      return;
+    }
+
+    const preview = (location.state as { attraction?: Attraction } | null)?.attraction;
+    if (preview) {
+      setAttraction(preview);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+    setLoadError('');
+
+    let active = true;
+    const timeoutMs = 8000;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      window.setTimeout(() => reject(new Error('timeout')), timeoutMs);
+    });
+
+    Promise.race([getAttractionsById(id), timeoutPromise])
+      .then((data) => {
+        if (!active) return;
         setAttraction(data);
       })
-      .catch(err => {
+      .catch((err) => {
+        if (!active) return;
         console.error('获取景区详情失败:', err);
+        setLoadError('景区详情加载失败，请重试');
       })
       .finally(() => {
+        if (!active) return;
         setLoading(false);
       });
-  }, [id]);
+
+    return () => {
+      active = false;
+    };
+  }, [id, location.state]);
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
         <Loader2 className="w-8 h-8 text-emerald-500 animate-spin mb-4" />
         <p className="text-gray-500">正在加载景区信息...</p>
+      </div>
+    );
+  }
+
+  if (loadError && !attraction) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6 text-center">
+        <p className="text-gray-700 font-medium">{loadError}</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="mt-4 px-6 py-2 bg-emerald-500 text-white rounded-full text-sm"
+        >
+          重试
+        </button>
       </div>
     );
   }
@@ -110,6 +153,20 @@ export default function AttractionDetail() {
 
   const openTimeText = attraction.open_time || '全天开放';
 
+  const imagePlaceholder =
+    'data:image/svg+xml;charset=utf-8,' +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="576" viewBox="0 0 800 576"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#e5f7f0" offset="0"/><stop stop-color="#eaf2ff" offset="1"/></linearGradient></defs><rect width="800" height="576" fill="url(#g)"/><path d="M0 460 C 120 380, 240 520, 400 460 S 680 380, 800 460 V 576 H 0 Z" fill="#d7efe6" opacity="0.9"/><text x="50%" y="52%" dominant-baseline="middle" text-anchor="middle" fill="#6b7280" font-size="24" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial">图片加载中</text></svg>`
+    );
+
+  const safeImageUrl = (() => {
+    const raw = attraction.image_url || '';
+    if (!raw) return '';
+    if (raw.startsWith('http://')) return raw.replace('http://', 'https://');
+    if (raw.includes('images.unsplash.com')) return '';
+    return raw;
+  })();
+
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* 头部导航 */}
@@ -125,22 +182,15 @@ export default function AttractionDetail() {
 
         {/* 头图 */}
       <div className="w-full h-72 bg-gray-200 relative overflow-hidden">
-        {attraction.image_url ? (
+        {safeImageUrl ? (
           <img
-            src={attraction.image_url}
+            src={safeImageUrl}
             alt={attraction.name}
             className="w-full h-full object-cover"
             onError={(e) => {
               const target = e.target as HTMLImageElement;
-              const fallbacks = [
-                '1464822759023-fed622ff2c3b', '1437482078695-73f5ca6c96e2', 
-                '1552604617-eea98aa27234', '1555881400-74d7acaacd8b',
-                '1441974231531-c6227db76b6e', '1476514525535-07fb3b4ae5f1'
-              ];
-              const idx = (parseInt(attraction.id) || 0) % fallbacks.length;
-              const fallbackUrl = 'https://images.unsplash.com/photo-' + fallbacks[idx] + '?w=800&auto=format&fit=crop&q=80';
-              if (target.src !== fallbackUrl) {
-                target.src = fallbackUrl;
+              if (target.src !== imagePlaceholder) {
+                target.src = imagePlaceholder;
               }
             }}
           />
