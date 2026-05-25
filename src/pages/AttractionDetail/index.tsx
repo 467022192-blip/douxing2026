@@ -14,6 +14,7 @@ export default function AttractionDetail() {
   const [loading, setLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
   const [loadError, setLoadError] = useState<string>('');
+  const [isFetchingDetails, setIsFetchingDetails] = useState(false);
 
   const { checkins, addCheckin, updateCheckin } = useAppStore();
   const { isAuthenticated } = useAuthStore();
@@ -29,13 +30,15 @@ export default function AttractionDetail() {
     if (preview) {
       setAttraction(preview);
       setLoading(false);
+      setIsFetchingDetails(true);
     } else {
       setLoading(true);
+      setIsFetchingDetails(true);
     }
     setLoadError('');
 
     let active = true;
-    const timeoutMs = 8000;
+    const timeoutMs = 15000;
     const timeoutPromise = new Promise<never>((_, reject) => {
       window.setTimeout(() => reject(new Error('timeout')), timeoutMs);
     });
@@ -48,11 +51,14 @@ export default function AttractionDetail() {
       .catch((err) => {
         if (!active) return;
         console.error('获取景区详情失败:', err);
-        setLoadError('景区详情加载失败，请重试');
+        if (!preview) {
+          setLoadError('景区详情加载失败，请重试');
+        }
       })
       .finally(() => {
         if (!active) return;
         setLoading(false);
+        setIsFetchingDetails(false);
       });
 
     return () => {
@@ -132,7 +138,14 @@ export default function AttractionDetail() {
     window.open(`https://www.douyin.com/search/${searchQuery}`, '_blank');
   };
 
-  const descriptionText = attraction.tips || attraction.description || '暂无详细简介。这可能是一个非常神秘的美丽景点，等待你去亲自探索。';
+  const descriptionText = (() => {
+    const tips = attraction.tips?.trim();
+    const desc = attraction.description?.trim();
+    if (tips) return tips;
+    if (desc) return desc;
+    if (isFetchingDetails) return '简介加载中…';
+    return '暂无详细简介。这可能是一个非常神秘的美丽景点，等待你去亲自探索。';
+  })();
   const isLongText = descriptionText.length > 100;
 
   const formatPriceDesc = (raw: string) => {
