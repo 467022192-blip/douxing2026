@@ -378,6 +378,46 @@ def _baidu_image_search(query: str, limit: int = 10) -> List[str]:
     return urls
 
 
+def _url_penalty(url: str) -> float:
+    lower = url.lower()
+    p = 0.0
+    if any(k in lower for k in ["map", "%e5%9c%b0%e5%9b%be", "行政区", "location", "坐标"]):
+        p += 1000.0
+    if any(k in lower for k in ["old", "historic", "vintage", "scan", "poster"]):
+        p += 120.0
+    return p
+
+
+def _pick_best_external(
+    candidates: List[Tuple[str, str, int, int]],
+    min_edge: int,
+    seen_urls: set,
+) -> Optional[Tuple[str, str]]:
+    best = None
+    best_score = -1e18
+    for src, url, w, h in candidates:
+        if not url.startswith("http"):
+            continue
+        if _is_bad_extension(url):
+            continue
+        if url in seen_urls:
+            continue
+        if "upload.wikimedia.org" in url or "wikipedia" in url:
+            if max(w, h) and max(w, h) < min_edge:
+                continue
+        if _looks_like_map(url, map_like=0.0):
+            continue
+
+        src_bonus = {"wiki": 200.0, "commons": 180.0, "baike": 80.0}.get(src, 0.0)
+        size_score = (max(w, h) / 10.0) if max(w, h) else 0.0
+        score = src_bonus + size_score - _url_penalty(url)
+        if score > best_score:
+            best_score = score
+            best = (src, url)
+
+    return best
+
+
 def _clean_name(name: str) -> str:
     s = name
     for t in [
@@ -497,12 +537,7 @@ def _candidate_pool(item: Dict[str, Any], min_edge: int) -> List[Tuple[str, str,
     except Exception:
         pass
 
-    try:
-        for u in _baidu_image_search(name, limit=8):
-            if u and not _is_bad_extension(u):
-                out.append(("baidu", u, 0, 0))
-    except Exception:
-        pass
+    # 方案 A：不使用百度图片作为默认来源（仅 Wikimedia/Wikipedia/百度百科）
 
     seen = set()
     deduped: List[Tuple[str, str, int, int]] = []
@@ -588,6 +623,7 @@ def main() -> int:
     parser.add_argument("--retry-jitter", type=float, default=0.2)
     parser.add_argument("--progress-interval-sec", type=int, default=60)
     parser.add_argument("--progress-path", default=os.path.join("exports", "image_refresh_progress.json"))
+    parser.add_argument("--mode", choices=["storage", "external"], default="storage")
     args = parser.parse_args()
 
     supabase_url = args.supabase_url.strip().rstrip("/")
@@ -617,9 +653,10 @@ def main() -> int:
     if args.limit and args.limit > 0:
         attractions = attractions[: args.limit]
 
-    allow_upload = not args.dry_run
+    allow_upload = (not args.dry_run) and (args.mode == "storage")
 
     seen_hashes: List[int] = []
+    seen_urls: set = set()
     report: List[Dict[str, Any]] = []
 
     started_at = time.time()
@@ -635,7 +672,21 @@ def main() -> int:
             continue
 
         pool = _candidate_pool(item, min_edge=args.min_edge)
-        best = _pick_best(pool, min_edge=args.min_edge, seen_hashes=seen_hashes, download_headers=headers_dl, retries=args.retries, backoff=args.retry_backoff, max_sleep=args.retry_max_sleep, jitter=args.retry_jitter)
+        best = None
+        best_external = None
+        if args.mode == "storage":
+            best = _pick_best(
+                pool,
+                min_edge=args.min_edge,
+                seen_hashes=seen_hashes,
+                download_headers=headers_dl,
+                retries=args.retries,
+                backoff=args.retry_backoff,
+                max_sleep=args.retry_max_sleep,
+                jitter=args.retry_jitter,
+            )
+        else:
+            best_external = _pick_best_external(pool, min_edge=args.min_edge, seen_urls=seen_urls)
 
         chosen_url = ""
         chosen_source = ""
@@ -647,6 +698,10 @@ def main() -> int:
             chosen_source = best.source
             seen_hashes.append(best.dhash)
             action = "selected" if args.dry_run else "selected"
+        elif best_external:
+            chosen_source, chosen_url = best_external
+            seen_urls.add(chosen_url)
+            action = "selected_external" if args.dry_run else "external"
         else:
             kind = _kind_from_name(name)
             img = _generate_placeholder(name, kind)

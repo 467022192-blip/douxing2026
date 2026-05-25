@@ -34,6 +34,14 @@ SUPABASE_IMAGE_BUCKET=attraction-images  # 可选
 python3 scripts/refresh_attraction_images.py --dry-run --limit 10
 ```
 
+## 方案 A：纯外链优先（推荐人工抽检）
+
+不上传 Storage，直接从 Wikimedia/Wikipedia/百度百科挑选 URL 并回写 `attractions.image_url`。
+
+```bash
+python3 scripts/refresh_attraction_images.py --mode external --min-edge 800 --sleep 0.25
+```
+
 会在 `exports/` 下输出报告 JSON（已被 `.gitignore` 忽略）。
 
 ## 正式执行（写库）
@@ -41,6 +49,8 @@ python3 scripts/refresh_attraction_images.py --dry-run --limit 10
 ```bash
 python3 scripts/refresh_attraction_images.py --max-edge 1600 --min-edge 800
 ```
+
+其中 `--mode storage` 为默认行为（会上传到 Storage 再回写）。
 
 常用参数：
 
