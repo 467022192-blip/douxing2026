@@ -57,7 +57,7 @@ export default function Home() {
   }, [filterType, stableCheckins]);
 
   // 调用后端搜索 Hook
-  const { data: displayedAttractions, loading, error } = useAttractionSearch(searchQuery, filterIds, selectedProvince);
+  const { data: displayedAttractions, loading, error, fromCache, refetch } = useAttractionSearch(searchQuery, filterIds, selectedProvince);
 
   const stats = useMemo(() => {
     if (!checkins || !Array.isArray(checkins)) return { visited: 0, wantToVisit: 0, undecided: 0 };
@@ -244,14 +244,20 @@ export default function Home() {
 
       {/* 景区列表区域 */}
       <div className="flex-1 px-4 pt-4 overflow-hidden">
-        {loading ? (
+        {loading && displayedAttractions.length === 0 ? (
           <div className="flex justify-center items-center py-12">
             <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
           </div>
-        ) : error ? (
+        ) : error && displayedAttractions.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
             <p className="font-medium text-gray-700">景区数据加载失败</p>
             <p className="text-sm mt-1">请检查 Vercel 环境变量与 Supabase RLS 配置</p>
+            <button
+              onClick={() => void refetch()}
+              className="mt-4 h-10 px-5 rounded-xl bg-emerald-600 text-white text-sm font-medium"
+            >
+              重试
+            </button>
           </div>
         ) : displayedAttractions.length === 0 ? (
           filterType === 'want_to_visit' || filterType === 'visited' ? (
@@ -284,6 +290,17 @@ export default function Home() {
             </div>
           )
         ) : (
+          <>
+          {error && displayedAttractions.length > 0 && (
+            <div className="mb-3 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100 text-xs text-amber-700">
+              网络不佳，已展示缓存数据
+            </div>
+          )}
+          {fromCache && (
+            <div className="mb-3 px-3 py-2 rounded-xl bg-blue-50 border border-blue-100 text-xs text-blue-700">
+              已展示缓存，正在更新…
+            </div>
+          )}
           <AutoSizer
             renderProp={({ height, width }) => {
               if (!height || !width) return null;
@@ -446,6 +463,7 @@ export default function Home() {
               );
             }}
           />
+          </>
         )}
       </div>
     </div>

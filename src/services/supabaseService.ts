@@ -76,13 +76,16 @@ export const createProfile = async (userId: string, profile: Partial<UserProfile
 
 // ==================== 景区相关 ====================
 
+const ATTRACTIONS_LIST_SELECT =
+  'id,name,province,city,latitude,longitude,image_url,ticket_price,open_time' as const;
+
 /**
  * 获取所有景区
  */
 export const getAttractions = async (): Promise<Attraction[]> => {
   const { data, error } = await supabase
     .from('attractions')
-    .select('*')
+    .select(ATTRACTIONS_LIST_SELECT)
     .order('name');
 
   if (error) throw error;
@@ -95,7 +98,7 @@ export const getAttractions = async (): Promise<Attraction[]> => {
 export const getAttractionsByProvince = async (province: string): Promise<Attraction[]> => {
   const { data, error } = await supabase
     .from('attractions')
-    .select('*')
+    .select(ATTRACTIONS_LIST_SELECT)
     .eq('province', province)
     .order('name');
 
@@ -121,7 +124,7 @@ export const getAttractionsById = async (id: string): Promise<Attraction> => {
  * 后端模糊检索景区
  */
 export const searchAttractions = async (keyword?: string, filterIds?: string[], province?: string): Promise<Attraction[]> => {
-  let query = supabase.from('attractions').select('*');
+  let query = supabase.from('attractions').select(ATTRACTIONS_LIST_SELECT);
 
   if (keyword) {
     // 模糊匹配名称、城市、省份
