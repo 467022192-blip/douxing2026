@@ -430,7 +430,9 @@ export default function Home() {
                             </span>
                           </div>
 
-                          <p className="text-xs text-gray-300 line-clamp-1 mb-3">{attraction.description || '暂无简介'}</p>
+                          <p className="text-xs text-gray-200 line-clamp-2 mb-3">
+                            {attraction.description?.trim() || '暂无景区描述'}
+                          </p>
 
                           <div className="flex items-center justify-between text-xs text-gray-200">
                             <div className="flex items-center gap-1 shrink-0">
