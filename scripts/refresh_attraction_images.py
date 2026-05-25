@@ -31,6 +31,14 @@ def _with_retry(fn, retries: int, backoff: float, max_sleep: float, jitter: floa
     raise last_err  # type: ignore[misc]
 
 
+def _atomic_write_json(path0: str, data: Any) -> None:
+    os.makedirs(os.path.dirname(path0), exist_ok=True)
+    tmp = path0 + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path0)
+
+
 def _http_json(url: str, headers: Dict[str, str], timeout: int = 15) -> Any:
     req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -578,6 +586,8 @@ def main() -> int:
     parser.add_argument("--retry-backoff", type=float, default=0.8)
     parser.add_argument("--retry-max-sleep", type=float, default=4.0)
     parser.add_argument("--retry-jitter", type=float, default=0.2)
+    parser.add_argument("--progress-interval-sec", type=int, default=60)
+    parser.add_argument("--progress-path", default=os.path.join("exports", "image_refresh_progress.json"))
     args = parser.parse_args()
 
     supabase_url = args.supabase_url.strip().rstrip("/")
@@ -620,6 +630,11 @@ def main() -> int:
 
     seen_hashes: List[int] = []
     report: List[Dict[str, Any]] = []
+
+    started_at = time.time()
+    last_progress_at = started_at
+    progress_path = os.path.join(os.getcwd(), args.progress_path)
+    total = len(attractions)
 
     for idx, item in enumerate(attractions):
         aid = str(item.get("id") or "").strip()
@@ -731,6 +746,46 @@ def main() -> int:
 
         if args.sleep > 0:
             time.sleep(args.sleep)
+
+        now = time.time()
+        if args.progress_interval_sec > 0 and (now - last_progress_at) >= args.progress_interval_sec:
+            done = len(report)
+            elapsed = max(1e-6, now - started_at)
+            rate = done / elapsed
+            eta_sec = int((total - done) / rate) if rate > 0 else 0
+
+            actions = [r.get("action", "") for r in report]
+            ok = sum(1 for a in actions if isinstance(a, str) and a.endswith("_db_updated"))
+            failed = sum(1 for a in actions if isinstance(a, str) and "failed" in a)
+            uploaded = sum(1 for a in actions if isinstance(a, str) and "uploaded" in a)
+            external = sum(1 for a in actions if isinstance(a, str) and a.startswith("external"))
+
+            summary = {
+                "total": total,
+                "done": done,
+                "ok_db_updated": ok,
+                "failed": failed,
+                "uploaded": uploaded,
+                "external": external,
+                "elapsed_sec": int(elapsed),
+                "eta_sec": eta_sec,
+                "rate_per_sec": round(rate, 4),
+                "last_index": idx,
+                "last_item": {
+                    "id": report[-1].get("id"),
+                    "name": report[-1].get("name"),
+                    "action": report[-1].get("action"),
+                    "chosen_source": report[-1].get("chosen_source"),
+                },
+            }
+
+            print(json.dumps({"progress": summary}, ensure_ascii=False))
+            try:
+                _atomic_write_json(progress_path, {"progress": summary, "recent": report[-50:]})
+            except Exception:
+                pass
+
+            last_progress_at = now
 
     out_path = os.path.join(os.getcwd(), "exports", f"image_refresh_report_{int(time.time())}.json")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
