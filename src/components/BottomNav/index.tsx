@@ -1,5 +1,6 @@
 import { Home, MapPin, MessageCircle, User } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { preloadBaiduMapIdle } from '../../utils/baiduMap';
 
 const navItems = [
   { path: '/', label: '首页', icon: Home },
@@ -21,6 +22,12 @@ export default function BottomNav() {
             <button
               key={item.path}
               onClick={() => navigate(item.path)}
+              onPointerEnter={() => {
+                if (item.path === '/footprint') preloadBaiduMapIdle();
+              }}
+              onTouchStart={() => {
+                if (item.path === '/footprint') preloadBaiduMapIdle();
+              }}
               className={`flex flex-col items-center justify-center flex-1 h-full transition-colors ${
                 isActive ? 'text-emerald-500' : 'text-gray-400'
               }`}

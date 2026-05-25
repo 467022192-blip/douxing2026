@@ -4,7 +4,7 @@ import BottomNav from './components/BottomNav';
 import { initTestHelpers } from './utils/testHelpers';
 import { useAuthStore } from './stores/authStore';
 import { useAppStore } from './stores/appStore';
-import { preloadBaiduMapIdle } from './utils/baiduMap';
+import { env } from './config/env';
 
 // Code Splitting with React.lazy
 const Home = lazy(() => import('./pages/Home/index'));
@@ -32,7 +32,21 @@ function AppRoutes() {
   useEffect(() => {
     initAuth();
 
-    preloadBaiduMapIdle();
+    try {
+      const url = new URL(env.supabaseUrl);
+      const origin = url.origin;
+      const addLink = (rel: string) => {
+        const el = document.createElement('link');
+        el.rel = rel;
+        el.href = origin;
+        if (rel === 'preconnect') el.crossOrigin = '';
+        document.head.appendChild(el);
+      };
+      addLink('dns-prefetch');
+      addLink('preconnect');
+    } catch {
+      // ignore
+    }
 
     // 在开发环境下初始化测试辅助函数
     if (import.meta.env.DEV) {
