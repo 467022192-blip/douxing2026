@@ -160,7 +160,7 @@ export const searchAttractions = async (keyword?: string, filterIds?: string[], 
 export const getTotalAttractionsCount = async (): Promise<number> => {
   const { count, error } = await supabase
     .from('attractions')
-    .select('*', { count: 'exact', head: true });
+    .select('id', { count: 'exact', head: true });
     
   if (error) {
     console.error('获取景区总数失败:', error);

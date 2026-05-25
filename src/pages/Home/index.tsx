@@ -8,7 +8,6 @@ import { PROVINCES } from '../../constants/provinces';
 import { useAppStore } from '../../stores/appStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useAttractionSearch } from '../../hooks/useAttractionSearch';
-import { getTotalAttractionsCount } from '../../services/supabaseService';
 import type { Attraction, UserCheckin } from '../../types';
 
 export default function Home() {
@@ -22,12 +21,6 @@ export default function Home() {
   const [filterType, setFilterType] = useState<'all' | 'visited' | 'want_to_visit' | 'undecided'>('all');
   const [totalCount, setTotalCount] = useState(358);
   const [stableCheckins, setStableCheckins] = useState(checkins);
-
-  useEffect(() => {
-    getTotalAttractionsCount().then(count => {
-      if (count > 0) setTotalCount(count);
-    });
-  }, []);
 
   const checkinsRef = useRef(checkins);
   useEffect(() => {
@@ -58,6 +51,15 @@ export default function Home() {
 
   // 调用后端搜索 Hook
   const { data: displayedAttractions, loading, error, fromCache, refetch } = useAttractionSearch(searchQuery, filterIds, selectedProvince);
+
+  const isRecommendedMode =
+    filterType === 'all' && !searchQuery.trim() && selectedProvince === '全部';
+
+  useEffect(() => {
+    if (isRecommendedMode && displayedAttractions.length > 0) {
+      setTotalCount(displayedAttractions.length);
+    }
+  }, [isRecommendedMode, displayedAttractions.length]);
 
   const stats = useMemo(() => {
     if (!checkins || !Array.isArray(checkins)) return { visited: 0, wantToVisit: 0, undecided: 0 };
@@ -152,8 +154,15 @@ export default function Home() {
   };
 
   // 辅助函数：优化图片加载大小，将 1200 宽度的图片压缩到 600，降低 quality 到 80，兼顾加载速度与图片质量
+  const imagePlaceholder =
+    'data:image/svg+xml;charset=utf-8,' +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#e5f7f0" offset="0"/><stop stop-color="#eaf2ff" offset="1"/></linearGradient></defs><rect width="600" height="400" fill="url(#g)"/><path d="M0 310 C 90 260, 180 360, 300 310 S 510 260, 600 310 V 400 H 0 Z" fill="#d7efe6" opacity="0.9"/><circle cx="470" cy="120" r="46" fill="#cfe7ff"/><text x="50%" y="52%" dominant-baseline="middle" text-anchor="middle" fill="#6b7280" font-size="20" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial">图片加载中</text></svg>`
+    );
+
   const getOptimizedImageUrl = (url: string) => {
-    if (!url) return '';
+    if (!url) return imagePlaceholder;
+    if (url.includes('images.unsplash.com')) return imagePlaceholder;
     return url.replace(/w=\d+/, 'w=600').replace(/quality=\d+/, 'quality=80');
   };
 
@@ -360,19 +369,8 @@ export default function Home() {
                         className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
-                          const fallbacks = [
-                            '1464822759023-fed622ff2c3b',
-                            '1437482078695-73f5ca6c96e2',
-                            '1552604617-eea98aa27234',
-                            '1555881400-74d7acaacd8b',
-                            '1441974231531-c6227db76b6e',
-                            '1476514525535-07fb3b4ae5f1'
-                          ];
-                          const idx = (parseInt(attraction.id) || 0) % fallbacks.length;
-                          const fallbackUrl = `https://images.unsplash.com/photo-${fallbacks[idx]}?w=600&auto=format&fit=crop&q=80`;
-
-                          if (target.src !== fallbackUrl) {
-                            target.src = fallbackUrl;
+                          if (target.src !== imagePlaceholder) {
+                            target.src = imagePlaceholder;
                           }
                         }}
                       />
