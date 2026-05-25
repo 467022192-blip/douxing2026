@@ -12,6 +12,8 @@ dist
 dist-ssr
 *.local
 *.xlsx
+exports/
+*.har
 
 # Editor directories and files
 .vscode/*
