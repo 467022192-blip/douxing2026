@@ -49,6 +49,11 @@ python3 scripts/refresh_attraction_images.py --max-edge 1600 --min-edge 800
 - `--webp-quality 82`：WebP 压缩质量（默认 82）
 - `--limit N`：只处理前 N 条
 - `--start N`：从第 N 条开始
+- `--sleep 0.35`：每条景区处理后睡眠（节流），弱网建议 0.25~0.5
+- `--retries 3`：网络/上传/回写失败重试次数
+- `--retry-backoff 0.8`：指数退避基础秒数
+- `--retry-max-sleep 4.0`：单次退避上限秒数
+- `--retry-jitter 0.2`：退避抖动（避免同一时刻集中重试）
 
 ## 输出
 
@@ -57,4 +62,3 @@ python3 scripts/refresh_attraction_images.py --max-edge 1600 --min-edge 800
 - 每条景区的最终选择来源（wiki/commons/baike/baidu/generated）
 - 最终写入的 `attractions.image_url`
 - 失败原因（如 Storage bucket 不存在 / 数据库更新权限不足）
-

@@ -15,6 +15,22 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from PIL import Image
 
 
+def _with_retry(fn, retries: int, backoff: float, max_sleep: float, jitter: float, retry_name: str):
+    last_err = None
+    for attempt in range(retries + 1):
+        try:
+            return fn()
+        except Exception as e:
+            last_err = e
+            if attempt >= retries:
+                break
+            sleep_s = min(max_sleep, backoff * (2**attempt))
+            if jitter > 0:
+                sleep_s += random.random() * jitter
+            time.sleep(sleep_s)
+    raise last_err  # type: ignore[misc]
+
+
 def _http_json(url: str, headers: Dict[str, str], timeout: int = 15) -> Any:
     req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -495,6 +511,10 @@ def _pick_best(
     min_edge: int,
     seen_hashes: List[int],
     download_headers: Dict[str, str],
+    retries: int,
+    backoff: float,
+    max_sleep: float,
+    jitter: float,
 ) -> Optional[Candidate]:
     best: Optional[Candidate] = None
     for src, url, w0, h0 in candidates:
@@ -503,7 +523,14 @@ def _pick_best(
         if _is_bad_extension(url):
             continue
         try:
-            data = _http_bytes(url, headers=download_headers, timeout=20)
+            data = _with_retry(
+                lambda: _http_bytes(url, headers=download_headers, timeout=20),
+                retries=retries,
+                backoff=backoff,
+                max_sleep=max_sleep,
+                jitter=jitter,
+                retry_name="download_candidate",
+            )
         except Exception:
             continue
         img = _decode_image(data)
@@ -547,6 +574,10 @@ def main() -> int:
     parser.add_argument("--start", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--sleep", type=float, default=0.15)
+    parser.add_argument("--retries", type=int, default=3)
+    parser.add_argument("--retry-backoff", type=float, default=0.8)
+    parser.add_argument("--retry-max-sleep", type=float, default=4.0)
+    parser.add_argument("--retry-jitter", type=float, default=0.2)
     args = parser.parse_args()
 
     supabase_url = args.supabase_url.strip().rstrip("/")
@@ -559,7 +590,14 @@ def main() -> int:
     update_key = service_key or anon_key
     headers_dl = {"User-Agent": "Mozilla/5.0", "Accept-Language": "zh-CN,zh;q=0.9"}
 
-    attractions = _supabase_fetch_attractions(supabase_url, anon_key)
+    attractions = _with_retry(
+        lambda: _supabase_fetch_attractions(supabase_url, anon_key),
+        retries=args.retries,
+        backoff=args.retry_backoff,
+        max_sleep=args.retry_max_sleep,
+        jitter=args.retry_jitter,
+        retry_name="fetch_attractions",
+    )
     if not isinstance(attractions, list):
         print("Unexpected attractions response", file=sys.stderr)
         return 2
@@ -590,7 +628,7 @@ def main() -> int:
             continue
 
         pool = _candidate_pool(item, min_edge=args.min_edge)
-        best = _pick_best(pool, min_edge=args.min_edge, seen_hashes=seen_hashes, download_headers=headers_dl)
+        best = _pick_best(pool, min_edge=args.min_edge, seen_hashes=seen_hashes, download_headers=headers_dl, retries=args.retries, backoff=args.retry_backoff, max_sleep=args.retry_max_sleep, jitter=args.retry_jitter)
 
         chosen_url = ""
         chosen_source = ""
@@ -615,7 +653,14 @@ def main() -> int:
                 action = "generated"
             elif bucket_ready:
                 try:
-                    public_url = _supabase_upload_public_webp(supabase_url, update_key, args.bucket, obj_path, payload)
+                    public_url = _with_retry(
+                        lambda: _supabase_upload_public_webp(supabase_url, update_key, args.bucket, obj_path, payload),
+                        retries=args.retries,
+                        backoff=args.retry_backoff,
+                        max_sleep=args.retry_max_sleep,
+                        jitter=args.retry_jitter,
+                        retry_name="upload_generated",
+                    )
                     chosen_url = public_url
                     chosen_source = "generated"
                     action = "generated_uploaded"
@@ -628,13 +673,27 @@ def main() -> int:
         if chosen_url and not args.dry_run:
             if chosen_source != "generated" and bucket_ready:
                 try:
-                    img_bytes = _http_bytes(chosen_url, headers=headers_dl, timeout=22)
+                    img_bytes = _with_retry(
+                        lambda: _http_bytes(chosen_url, headers=headers_dl, timeout=22),
+                        retries=args.retries,
+                        backoff=args.retry_backoff,
+                        max_sleep=args.retry_max_sleep,
+                        jitter=args.retry_jitter,
+                        retry_name="download_chosen",
+                    )
                     img = _decode_image(img_bytes)
                     if img:
                         resized = _resize_to_max_edge(img, args.max_edge)
                         payload = _encode_webp(resized, quality=args.webp_quality)
                         obj_path = f"attractions/{_safe_filename(aid)}/cover.webp"
-                        public_url = _supabase_upload_public_webp(supabase_url, update_key, args.bucket, obj_path, payload)
+                        public_url = _with_retry(
+                            lambda: _supabase_upload_public_webp(supabase_url, update_key, args.bucket, obj_path, payload),
+                            retries=args.retries,
+                            backoff=args.retry_backoff,
+                            max_sleep=args.retry_max_sleep,
+                            jitter=args.retry_jitter,
+                            retry_name="upload_chosen",
+                        )
                         chosen_url = public_url
                         action = "uploaded"
                     else:
@@ -644,7 +703,14 @@ def main() -> int:
                     fail_reason = str(e)
 
             try:
-                _supabase_update_image_url(supabase_url, update_key, aid, chosen_url)
+                _with_retry(
+                    lambda: _supabase_update_image_url(supabase_url, update_key, aid, chosen_url),
+                    retries=args.retries,
+                    backoff=args.retry_backoff,
+                    max_sleep=args.retry_max_sleep,
+                    jitter=args.retry_jitter,
+                    retry_name="db_update",
+                )
                 action = action + "_db_updated"
             except Exception as e:
                 action = action + "_db_update_failed"
