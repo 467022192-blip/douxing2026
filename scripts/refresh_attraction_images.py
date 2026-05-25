@@ -617,16 +617,7 @@ def main() -> int:
     if args.limit and args.limit > 0:
         attractions = attractions[: args.limit]
 
-    bucket_ready = False
-    if not args.dry_run:
-        try:
-            exists = _supabase_bucket_exists(supabase_url, update_key, args.bucket)
-            if not exists and service_key:
-                _supabase_create_public_bucket(supabase_url, update_key, args.bucket)
-                exists = _supabase_bucket_exists(supabase_url, update_key, args.bucket)
-            bucket_ready = exists
-        except Exception:
-            bucket_ready = False
+    allow_upload = not args.dry_run
 
     seen_hashes: List[int] = []
     report: List[Dict[str, Any]] = []
@@ -639,6 +630,7 @@ def main() -> int:
     for idx, item in enumerate(attractions):
         aid = str(item.get("id") or "").strip()
         name = str(item.get("name") or "").strip()
+        existing_image_url = str(item.get("image_url") or "").strip()
         if not aid or not name:
             continue
 
@@ -654,7 +646,7 @@ def main() -> int:
             chosen_url = best.url
             chosen_source = best.source
             seen_hashes.append(best.dhash)
-            action = "selected" if args.dry_run else action
+            action = "selected" if args.dry_run else "selected"
         else:
             kind = _kind_from_name(name)
             img = _generate_placeholder(name, kind)
@@ -666,7 +658,7 @@ def main() -> int:
                 chosen_url = f"generated://{obj_path}"
                 chosen_source = "generated"
                 action = "generated"
-            elif bucket_ready:
+            elif allow_upload:
                 try:
                     public_url = _with_retry(
                         lambda: _supabase_upload_public_webp(supabase_url, update_key, args.bucket, obj_path, payload),
@@ -680,13 +672,24 @@ def main() -> int:
                     chosen_source = "generated"
                     action = "generated_uploaded"
                 except Exception as e:
-                    chosen_url = ""
-                    chosen_source = "generated"
-                    action = "generated_failed"
-                    fail_reason = str(e)
+                    if existing_image_url:
+                        chosen_url = existing_image_url
+                        chosen_source = "kept"
+                        action = "kept_existing"
+                        fail_reason = str(e)
+                    else:
+                        chosen_url = ""
+                        chosen_source = "generated"
+                        action = "generated_failed"
+                        fail_reason = str(e)
+            else:
+                if existing_image_url:
+                    chosen_url = existing_image_url
+                    chosen_source = "kept"
+                    action = "kept_existing"
 
         if chosen_url and not args.dry_run:
-            if chosen_source != "generated" and bucket_ready:
+            if chosen_source not in ["generated", "kept"] and allow_upload:
                 try:
                     img_bytes = _with_retry(
                         lambda: _http_bytes(chosen_url, headers=headers_dl, timeout=22),
@@ -793,17 +796,6 @@ def main() -> int:
         json.dump(report, f, ensure_ascii=False, indent=2)
 
     print(json.dumps({"processed": len(report), "report": out_path}, ensure_ascii=False))
-    if not args.dry_run and not bucket_ready:
-        print(
-            json.dumps(
-                {
-                    "warning": "storage bucket not ready; used external urls where possible",
-                    "bucket": args.bucket,
-                    "hint": "Set SUPABASE_SERVICE_ROLE_KEY to allow bucket create, or create a public bucket manually."
-                },
-                ensure_ascii=False,
-            )
-        )
     return 0
 
 
