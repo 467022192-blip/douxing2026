@@ -6,6 +6,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useAttractionSearch } from '../../hooks/useAttractionSearch';
 import { getTotalAttractionsCount } from '../../services/supabaseService';
 import { env } from '../../config/env';
+import { loadBaiduMap } from '../../utils/baiduMap';
 import type { Attraction } from '../../types';
 import type { BMapMap, BMapLabel } from '../../types/bmap';
 
@@ -18,6 +19,7 @@ export default function Footprint() {
   const { checkins } = useAppStore();
   const [filter, setFilter] = useState<'all' | 'visited' | 'want_to_visit'>('all');
   const [isMapLoaded, setIsMapLoaded] = useState(false);
+  const [isMapTilesLoaded, setIsMapTilesLoaded] = useState(false);
   const [mapConfigError, setMapConfigError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [totalCount, setTotalCount] = useState(358);
@@ -42,36 +44,24 @@ export default function Footprint() {
   const { data: displayedAttractions } = useAttractionSearch(searchQuery, filterIds);
 
   useEffect(() => {
-    const baiduMapAk = env.baiduMapAk;
-
-    if (!baiduMapAk) {
+    if (!env.baiduMapAk) {
       setMapConfigError('未配置百度地图 AK（VITE_BAIDU_MAP_AK），地图无法加载');
       return;
     }
-    
-    if (window.BMap) {
-      setIsMapLoaded(true);
-      return;
-    }
-    
-    // 加载百度地图脚本
-    const script = document.createElement('script');
-    script.src = `https://api.map.baidu.com/api?v=3.0&ak=${baiduMapAk}&callback=initMap`;
-    script.async = true;
-    script.onerror = () => {
-      setMapConfigError('百度地图脚本加载失败，请检查 AK 或网络环境');
-    };
-    document.body.appendChild(script);
 
-    window.initMap = () => {
+    let canceled = false;
+    loadBaiduMap()
+      .then(() => {
+        if (canceled) return;
         setIsMapLoaded(true);
-      };
+      })
+      .catch(() => {
+        if (canceled) return;
+        setMapConfigError('百度地图脚本加载失败，请检查 AK 或网络环境');
+      });
 
     return () => {
-      if (script && script.parentNode) {
-        document.body.removeChild(script);
-      }
-      delete window.initMap;
+      canceled = true;
     };
   }, []);
 
@@ -176,11 +166,21 @@ export default function Footprint() {
     // 初始化地图
     const map = new window.BMap.Map(mapRef.current);
     mapInstanceRef.current = map;
+    setIsMapTilesLoaded(false);
 
     // 设置中心点和缩放级别
     const point = new window.BMap.Point(116.397428, 39.90923);
     map.centerAndZoom(point, 5);
     map.enableScrollWheelZoom();
+
+    const handleTilesLoaded = () => {
+      setIsMapTilesLoaded(true);
+    };
+    try {
+      map.addEventListener?.('tilesloaded', handleTilesLoaded);
+    } catch {
+      setIsMapTilesLoaded(true);
+    }
     
     // 启用个性化地图样式（可选，让地图看起来更干净）
     try {
@@ -223,6 +223,14 @@ export default function Footprint() {
 
     // 添加标记点
     updateMarkers(true);
+
+    return () => {
+      try {
+        map.removeEventListener?.('tilesloaded', handleTilesLoaded);
+      } catch {
+        // ignore
+      }
+    };
   }, [isMapLoaded, updateMarkers]);
   // 监听缩放，动态控制灰色未打卡景区的名称显示，避免层叠
   useEffect(() => {
@@ -410,27 +418,42 @@ export default function Footprint() {
       </button>
 
       {/* 地图容器 */}
-      {isMapLoaded ? (
+      {env.baiduMapAk ? (
         <>
           <div ref={mapRef} className="absolute inset-0 z-0" style={{ touchAction: 'none' }} />
-          {/* 自定义缩放控件 */}
-          <div className="absolute top-36 left-4 z-10 flex flex-col gap-2 pointer-events-none">
-            <button
-              onClick={(e) => { e.preventDefault(); mapInstanceRef.current?.zoomIn(); }}
-              className="pointer-events-auto w-8 h-8 bg-white/90 backdrop-blur rounded-full shadow-md flex items-center justify-center text-gray-700 hover:bg-gray-50 active:scale-95 transition-all"
-            >
-              <Plus size={18} />
-            </button>
-            <button
-              onClick={(e) => { e.preventDefault(); mapInstanceRef.current?.zoomOut(); }}
-              className="pointer-events-auto w-8 h-8 bg-white/90 backdrop-blur rounded-full shadow-md flex items-center justify-center text-gray-700 hover:bg-gray-50 active:scale-95 transition-all"
-            >
-              <Minus size={18} />
-            </button>
-          </div>
+
+          {(!isMapLoaded || !isMapTilesLoaded) && !mapConfigError && (
+            <div className="absolute inset-0 z-[5] bg-gradient-to-br from-blue-50 to-emerald-50 flex items-center justify-center">
+              <div className="w-full px-6">
+                <div className="h-10 w-44 rounded-full bg-white/70 mx-auto mb-4" />
+                <div className="h-4 w-56 rounded bg-white/70 mx-auto" />
+                <div className="h-4 w-40 rounded bg-white/60 mx-auto mt-2" />
+                <div className="mt-6 flex justify-center">
+                  <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+                <div className="mt-3 text-center text-xs text-gray-500">地图加载中…</div>
+              </div>
+            </div>
+          )}
+
+          {isMapLoaded && (
+            <div className="absolute top-36 left-4 z-10 flex flex-col gap-2 pointer-events-none">
+              <button
+                onClick={(e) => { e.preventDefault(); mapInstanceRef.current?.zoomIn(); }}
+                className="pointer-events-auto w-8 h-8 bg-white/90 backdrop-blur rounded-full shadow-md flex items-center justify-center text-gray-700 hover:bg-gray-50 active:scale-95 transition-all"
+              >
+                <Plus size={18} />
+              </button>
+              <button
+                onClick={(e) => { e.preventDefault(); mapInstanceRef.current?.zoomOut(); }}
+                className="pointer-events-auto w-8 h-8 bg-white/90 backdrop-blur rounded-full shadow-md flex items-center justify-center text-gray-700 hover:bg-gray-50 active:scale-95 transition-all"
+              >
+                <Minus size={18} />
+              </button>
+            </div>
+          )}
         </>
       ) : (
-        /* 无百度地图Key时的提示 */
         <div className="w-full h-screen bg-gradient-to-br from-blue-50 to-emerald-50 flex items-center justify-center">
           <div className="text-center px-4">
             <MapPin size={64} className="mx-auto text-emerald-300 mb-4" />

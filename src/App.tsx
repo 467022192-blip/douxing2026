@@ -4,6 +4,7 @@ import BottomNav from './components/BottomNav';
 import { initTestHelpers } from './utils/testHelpers';
 import { useAuthStore } from './stores/authStore';
 import { useAppStore } from './stores/appStore';
+import { preloadBaiduMapIdle } from './utils/baiduMap';
 
 // Code Splitting with React.lazy
 const Home = lazy(() => import('./pages/Home/index'));
@@ -30,6 +31,8 @@ function AppRoutes() {
   // 初始化认证状态
   useEffect(() => {
     initAuth();
+
+    preloadBaiduMapIdle();
 
     // 在开发环境下初始化测试辅助函数
     if (import.meta.env.DEV) {
