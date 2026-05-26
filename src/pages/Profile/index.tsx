@@ -190,7 +190,7 @@ export default function Profile() {
                   {isAuthenticated ? user?.nickname || '游客' : '未登录'}
                 </h2>
                 <p className="text-white/70 text-sm mt-1">
-                  {isAuthenticated ? '记录你的旅行足迹' : '登录后解锁更多功能'}
+                  {isAuthenticated ? '记录你的旅行行程' : '登录后解锁更多功能'}
                 </p>
               </>
             )}
@@ -369,7 +369,7 @@ export default function Profile() {
             <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600">
               <MapPin size={18} />
             </div>
-            <span className="text-gray-800">关于足迹</span>
+            <span className="text-gray-800">关于行程</span>
           </div>
           <span className="text-sm text-gray-400">v1.0.0</span>
         </div>

@@ -317,7 +317,7 @@ export default function Space() {
       {/* 头部 */}
       <div className="bg-white px-4 py-3 sticky top-0 z-10 shadow-sm flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-sm font-semibold text-gray-900">足迹所至，自有故事</h1>
+          <h1 className="text-sm font-semibold text-gray-900">行程所至，自有故事</h1>
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}

@@ -45,7 +45,7 @@ const puppeteer = require('puppeteer');
   await page.evaluate(() => {
       const navs = document.querySelectorAll('.fixed.bottom-0 button');
       navs.forEach(n => {
-          if (n.innerText.includes('足迹')) n.click();
+          if (n.innerText.includes('行程')) n.click();
       });
   });
   

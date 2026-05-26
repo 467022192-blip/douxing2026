@@ -4,7 +4,7 @@ import { preloadBaiduMapIdle } from '../../utils/baiduMap';
 
 const navItems = [
   { path: '/', label: '首页', icon: Home },
-  { path: '/footprint', label: '足迹', icon: MapPin },
+  { path: '/footprint', label: '行程', icon: MapPin },
   { path: '/space', label: '动态', icon: MessageCircle },
   { path: '/profile', label: '我的', icon: User },
 ];

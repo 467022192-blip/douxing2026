@@ -215,11 +215,11 @@ export default function Login() {
             <span className="text-3xl text-white font-bold">迹</span>
           </div>
           <h2 className="text-xl font-bold text-gray-800">
-            {mode === 'login' ? '欢迎回来' : '加入足迹'}
+            {mode === 'login' ? '欢迎回来' : '加入行程'}
           </h2>
           <p className="text-sm text-gray-500 mt-1">
             {mode === 'login'
-              ? '登录后记录你的旅行足迹'
+              ? '登录后记录你的旅行行程'
               : '注册账号，开启你的打卡之旅'}
           </p>
         </div>
