@@ -77,7 +77,7 @@ export const createProfile = async (userId: string, profile: Partial<UserProfile
 // ==================== 景区相关 ====================
 
 const ATTRACTIONS_LIST_SELECT =
-  'id,name,province,city,latitude,longitude,image_url,ticket_price,open_time,tips,description' as const;
+  'id,name,province,city,address,latitude,longitude,image_url,ticket_price,open_time,tips,description' as const;
 
 /**
  * 获取所有景区
@@ -128,7 +128,7 @@ export const searchAttractions = async (keyword?: string, filterIds?: string[], 
 
   if (keyword) {
     // 模糊匹配名称、城市、省份
-    query = query.or(`name.ilike.%${keyword}%,city.ilike.%${keyword}%,province.ilike.%${keyword}%`);
+    query = query.or(`name.ilike.%${keyword}%,city.ilike.%${keyword}%,province.ilike.%${keyword}%,address.ilike.%${keyword}%`);
   }
 
   if (province && province !== '全部') {

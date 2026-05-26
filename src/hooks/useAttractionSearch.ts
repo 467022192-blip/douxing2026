@@ -3,7 +3,7 @@ import { searchAttractions } from '../services/supabaseService';
 import type { Attraction } from '../types';
 import { getLocalCache, setLocalCache } from '../utils/localCache';
 
-const RECOMMENDED_CACHE_KEY = 'attractions:recommended:v1';
+const RECOMMENDED_CACHE_KEY = 'attractions:recommended:v2';
 const RECOMMENDED_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export function useAttractionSearch(keyword: string, filterIds?: string[], province?: string) {

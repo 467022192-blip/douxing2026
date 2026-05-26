@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Heart, MessageCircle, MapPin, Image as ImageIcon, X, Send, Camera, Loader2, RefreshCw, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import { getPosts, getComments, addComment, createPost, uploadImage, checkLike, addLike, removeLike, deletePost, getAttractions } from '../../services/supabaseService';
 import type { Post, Comment, Attraction } from '../../types';
+import ImagePreviewModal from '../../components/ImagePreviewModal';
 
 export default function Space() {
+  const navigate = useNavigate();
   const [posts, setPosts] = useState<Post[]>([]);
   const [isLoadingPosts, setIsLoadingPosts] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -29,6 +32,12 @@ export default function Space() {
   const [isPrivate, setIsPrivate] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [imagePreview, setImagePreview] = useState<{ open: boolean; images: string[]; index: number }>({
+    open: false,
+    images: [],
+    index: 0
+  });
 
   const [allAttractions, setAllAttractions] = useState<Attraction[]>([]);
   const [attractionQuery, setAttractionQuery] = useState('');
@@ -204,10 +213,9 @@ export default function Space() {
 
   const handleImageClick = (e: React.MouseEvent, post: Post, imageIndex: number) => {
     e.stopPropagation();
-    if (post.images && post.images[imageIndex]) {
-      // For now just console log, you can implement a full screen preview later
-      console.log('Preview image:', post.images[imageIndex]);
-    }
+    const imgs = (post.images || []).filter(Boolean);
+    if (!imgs.length) return;
+    setImagePreview({ open: true, images: imgs, index: Math.max(0, Math.min(imageIndex, imgs.length - 1)) });
   };
 
   const submitPost = async () => {
@@ -255,7 +263,9 @@ export default function Space() {
 
   const openCreateModal = async () => {
     if (!isAuthenticated) {
-      alert('请先登录后再发布');
+      if (window.confirm('请先登录后再发布，是否前往登录？')) {
+        navigate('/login');
+      }
       return;
     }
 
@@ -296,7 +306,10 @@ export default function Space() {
 
   const formatTime = (time: string) => {
     const date = new Date(time);
-    return `${date.getMonth() + 1}月${date.getDate()}日`;
+    if (Number.isNaN(date.getTime())) return '';
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    const hh = String(date.getHours()).padStart(2, '0');
+    return `${date.getMonth() + 1}月${date.getDate()}日${hh}:${mm}`;
   };
 
   return (
@@ -304,35 +317,23 @@ export default function Space() {
       {/* 头部 */}
       <div className="bg-white px-4 py-3 sticky top-0 z-10 shadow-sm flex items-center justify-between">
         <div className="flex items-center gap-3">
-          {isAuthenticated && user ? (
-            <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-full bg-gray-200 overflow-hidden shrink-0">
-                {user.avatar_url ? (
-                  <img src={user.avatar_url} alt={user.nickname} className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-500 text-sm font-semibold">
-                    {user.nickname?.[0] || 'U'}
-                  </div>
-                )}
-              </div>
-              <div className="text-sm font-semibold text-gray-900">{user.nickname}</div>
-            </div>
-          ) : (
-            <h1 className="text-lg font-semibold">动态</h1>
-          )}
-          <button onClick={handleRefresh} disabled={isRefreshing} className="p-1 text-gray-400 hover:text-emerald-500 hover:bg-emerald-50 rounded-full transition-colors">
-             <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
+          <h1 className="text-sm font-semibold text-gray-900">足迹所至，自有故事</h1>
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-600 hover:bg-gray-100 transition-colors"
+            aria-label="更新"
+          >
+            <RefreshCw className={`w-6 h-6 sm:w-5 sm:h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
           </button>
         </div>
-        {isAuthenticated && (
-          <button
-            onClick={openCreateModal}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 text-white rounded-full text-sm"
-          >
-            <span className="text-sm leading-none">📷</span>
-            发布
-          </button>
-        )}
+        <button
+          onClick={openCreateModal}
+          className={`p-1.5 rounded-lg hover:bg-gray-100 transition-colors ${isAuthenticated ? 'text-gray-900' : 'text-gray-400'}`}
+          aria-label="发布"
+        >
+          <Camera className="w-6 h-6 sm:w-5 sm:h-5" />
+        </button>
       </div>
 
       {/* 刷新状态指示器 */}
@@ -355,14 +356,15 @@ export default function Space() {
               <Camera size={32} className="text-gray-400" />
             </div>
             <p className="text-gray-500">先去打卡一些景区，然后回来分享你的旅行故事吧！</p>
-            {isAuthenticated && (
-              <button
-                onClick={openCreateModal}
-                className="mt-4 px-6 py-2 bg-emerald-500 text-white rounded-full text-sm"
-              >
-                📷 发布
-              </button>
-            )}
+            <button
+              onClick={openCreateModal}
+              className={`mt-4 px-5 py-2 rounded-full text-sm inline-flex items-center gap-2 ${
+                isAuthenticated ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-700'
+              }`}
+            >
+              <Camera size={18} />
+              发布
+            </button>
           </div>
         ) : (
           (posts || []).map((post) => (
@@ -480,6 +482,13 @@ export default function Space() {
       )}
 
       {null}
+
+      <ImagePreviewModal
+        open={imagePreview.open}
+        images={imagePreview.images}
+        initialIndex={imagePreview.index}
+        onClose={() => setImagePreview({ open: false, images: [], index: 0 })}
+      />
 
       {/* 评论弹窗 */}
       {selectedPost && (

@@ -9,6 +9,7 @@ import { env } from '../../config/env';
 import { loadBaiduMap } from '../../utils/baiduMap';
 import type { Attraction } from '../../types';
 import type { BMapMap, BMapLabel } from '../../types/bmap';
+import TopSearchStatsBar from '../../components/TopSearchStatsBar';
 
 export default function Footprint() {
   const navigate = useNavigate();
@@ -23,6 +24,9 @@ export default function Footprint() {
   const [mapConfigError, setMapConfigError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [totalCount, setTotalCount] = useState(358);
+
+  const wantToVisitCount = useMemo(() => checkins.filter(c => c.status === 'want_to_visit').length, [checkins]);
+  const visitedCount = useMemo(() => checkins.filter(c => c.status === 'visited').length, [checkins]);
 
   useEffect(() => {
     getTotalAttractionsCount().then(count => {
@@ -173,12 +177,18 @@ export default function Footprint() {
     map.centerAndZoom(point, 5);
     map.enableScrollWheelZoom();
 
+    const timeoutId = window.setTimeout(() => {
+      setIsMapTilesLoaded(true);
+    }, 4500);
+
     const handleTilesLoaded = () => {
+      window.clearTimeout(timeoutId);
       setIsMapTilesLoaded(true);
     };
     try {
       map.addEventListener?.('tilesloaded', handleTilesLoaded);
     } catch {
+      window.clearTimeout(timeoutId);
       setIsMapTilesLoaded(true);
     }
     
@@ -230,6 +240,7 @@ export default function Footprint() {
       } catch {
         // ignore
       }
+      window.clearTimeout(timeoutId);
     };
   }, [isMapLoaded, updateMarkers]);
   // 监听缩放，动态控制灰色未打卡景区的名称显示，避免层叠
@@ -324,69 +335,15 @@ export default function Footprint() {
       )}
       {/* 顶部控制栏 (搜索 + 筛选) */}
       <div className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-white/90 to-transparent pt-4 pb-6 px-4">
-        {/* 全局搜索栏 */}
-        <div className="relative mb-3 shadow-md rounded-full">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Search size={18} className="text-gray-400" />
-          </div>
-          <input
-            type="text"
-            placeholder="搜索景区名称或城市..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-white text-sm text-gray-900 rounded-full pl-10 pr-10 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
-          />
-          {searchQuery && (
-            <button 
-              onClick={() => setSearchQuery('')}
-              className="absolute inset-y-0 right-0 pr-3 flex items-center"
-            >
-              <X size={16} className="text-gray-400 hover:text-gray-600" />
-            </button>
-          )}
-        </div>
-
-        {/* 筛选标签 */}
-        <div className="flex gap-2">
-          {/* 全部 */}
-          <button
-            onClick={() => setFilter('all')}
-            className={`flex-1 py-3 px-2 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all ${
-              filter === 'all'
-                ? 'bg-blue-50 text-blue-600 shadow-sm border border-blue-100'
-                : 'bg-white text-gray-600 shadow-sm border border-gray-100'
-            }`}
-          >
-            <Database size={20} className={filter === 'all' ? 'text-blue-500' : 'text-gray-400'} />
-            <span className="text-xs font-medium">推荐 {totalCount}</span>
-          </button>
-
-          {/* 想去 */}
-          <button
-            onClick={() => setFilter('want_to_visit')}
-            className={`flex-1 py-3 px-2 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all ${
-              filter === 'want_to_visit'
-                ? 'bg-amber-50 text-amber-600 shadow-sm border border-amber-100'
-                : 'bg-white text-gray-600 shadow-sm border border-gray-100'
-            }`}
-          >
-            <Heart size={20} className={`text-amber-500 ${filter === 'want_to_visit' ? 'fill-amber-500' : ''}`} />
-            <span className="text-xs font-medium">想去 {checkins.filter(c => c.status === 'want_to_visit').length}</span>
-          </button>
-
-          {/* 去过 */}
-          <button
-            onClick={() => setFilter('visited')}
-            className={`flex-1 py-3 px-2 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all ${
-              filter === 'visited'
-                ? 'bg-emerald-50 text-emerald-600 shadow-sm border border-emerald-100'
-                : 'bg-white text-gray-600 shadow-sm border border-gray-100'
-            }`}
-          >
-            <CheckCircle2 size={20} className="text-emerald-500" />
-            <span className="text-xs font-medium">去过 {checkins.filter(c => c.status === 'visited').length}</span>
-          </button>
-        </div>
+        <TopSearchStatsBar
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+          filterType={filter}
+          onFilterTypeChange={setFilter}
+          totalCount={totalCount}
+          wantToVisitCount={wantToVisitCount}
+          visitedCount={visitedCount}
+        />
       </div>
 
       {/* 开发测试工具 */}
