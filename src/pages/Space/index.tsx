@@ -32,6 +32,7 @@ export default function Space() {
   const [isPrivate, setIsPrivate] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isAttractionListOpen, setIsAttractionListOpen] = useState(false);
 
   const [imagePreview, setImagePreview] = useState<{ open: boolean; images: string[]; index: number }>({
     open: false,
@@ -110,8 +111,13 @@ export default function Space() {
   const filteredAttractions = useMemo(() => {
     const q = attractionQuery.trim().toLowerCase();
     if (!q) return allAttractions;
-    return allAttractions.filter((a) => `${a.name} ${a.city} ${a.province}`.toLowerCase().includes(q));
+    return allAttractions.filter((a) => {
+      const hay = `${a.name} ${a.short_name || ''} ${a.address || ''} ${a.city || ''} ${a.province || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
   }, [allAttractions, attractionQuery]);
+
+  const attractionOptions = useMemo(() => filteredAttractions.slice(0, 20), [filteredAttractions]);
 
   const handleLike = async (post: Post) => {
     if (!isAuthenticated || !user) {
@@ -259,6 +265,7 @@ export default function Space() {
     setSelectedAttraction('');
     setIsPrivate(false);
     setAttractionQuery('');
+    setIsAttractionListOpen(false);
   };
 
   const openCreateModal = async () => {
@@ -324,7 +331,7 @@ export default function Space() {
             className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-600 hover:bg-gray-100 transition-colors"
             aria-label="更新"
           >
-            <RefreshCw className={`w-6 h-6 sm:w-5 sm:h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-[18px] h-[18px] sm:w-4 sm:h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
           </button>
         </div>
         <button
@@ -332,7 +339,7 @@ export default function Space() {
           className={`p-1.5 rounded-lg hover:bg-gray-100 transition-colors ${isAuthenticated ? 'text-gray-900' : 'text-gray-400'}`}
           aria-label="发布"
         >
-          <Camera className="w-6 h-6 sm:w-5 sm:h-5" />
+          <Camera className="w-[30px] h-[30px] sm:w-7 sm:h-7" />
         </button>
       </div>
 
@@ -620,25 +627,49 @@ export default function Space() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   选择打卡地点 <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  value={attractionQuery}
-                  onChange={(e) => setAttractionQuery(e.target.value)}
-                  placeholder="搜索景区名称或城市..."
-                  className="w-full mb-2 px-3 py-2 bg-gray-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-                <select
-                  value={selectedAttraction}
-                  onChange={(e) => setSelectedAttraction(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
-                >
-                  <option value="">{isLoadingAttractions ? '加载景区中...' : '请选择景区'}</option>
-                  {filteredAttractions.map((attraction) => (
-                    <option key={attraction.id} value={attraction.id}>
-                      {attraction.name} ({attraction.province}·{attraction.city})
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={attractionQuery}
+                    onChange={(e) => {
+                      setAttractionQuery(e.target.value);
+                      setIsAttractionListOpen(true);
+                      setSelectedAttraction('');
+                    }}
+                    onFocus={() => setIsAttractionListOpen(true)}
+                    placeholder="搜索景区名称或地址..."
+                    className="w-full px-3 py-2 bg-gray-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  {isAttractionListOpen && (
+                    <div className="absolute left-0 right-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-lg max-h-64 overflow-y-auto z-20">
+                      {isLoadingAttractions ? (
+                        <div className="px-3 py-3 text-sm text-gray-500">加载景区中...</div>
+                      ) : !attractionQuery.trim() ? (
+                        <div className="px-3 py-3 text-sm text-gray-500">输入景区名称或地址进行搜索</div>
+                      ) : attractionOptions.length === 0 ? (
+                        <div className="px-3 py-3 text-sm text-gray-500">未找到匹配景区</div>
+                      ) : (
+                        attractionOptions.map((attraction) => (
+                          <button
+                            key={attraction.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedAttraction(attraction.id);
+                              setAttractionQuery(attraction.name);
+                              setIsAttractionListOpen(false);
+                            }}
+                            className="w-full text-left px-3 py-2 hover:bg-gray-50 transition-colors"
+                          >
+                            <div className="text-sm font-medium text-gray-900">{attraction.name}</div>
+                            <div className="text-xs text-gray-500 mt-0.5 truncate">
+                              {(attraction.address || `${attraction.province || ''}·${attraction.city || ''}`).replace(/\s+/g, ' ').trim()}
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* 文字输入 */}

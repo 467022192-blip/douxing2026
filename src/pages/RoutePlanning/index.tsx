@@ -1610,7 +1610,7 @@ export default function RoutePlanning() {
                     <p className="text-xs text-gray-600">总距离</p>
                   </div>
                   <div className="flex flex-col items-center justify-center p-2 bg-emerald-50 rounded-xl h-16">
-                    <p className="text-lg font-bold text-emerald-600 leading-none mb-1">
+                    <p className="text-sm sm:text-lg font-bold text-emerald-600 leading-none mb-1 whitespace-nowrap">
                       {formatDuration(routePlan.totalDuration, true)}
                     </p>
                     <p className="text-xs text-gray-600">{getDurationUnit(routePlan.totalDuration)}</p>
