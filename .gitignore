@@ -15,6 +15,7 @@ dist-ssr
 exports/
 *.har
 .agent-browser/
+.dbg/
 
 # Editor directories and files
 .vscode/*

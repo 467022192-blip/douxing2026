@@ -110,8 +110,9 @@ export default function Space() {
 
   const filteredAttractions = useMemo(() => {
     const q = attractionQuery.trim().toLowerCase();
-    if (!q) return allAttractions;
-    return allAttractions.filter((a) => {
+    const src = Array.isArray(allAttractions) ? allAttractions : [];
+    if (!q) return src;
+    return src.filter((a) => {
       const hay = `${a.name} ${a.short_name || ''} ${a.address || ''} ${a.city || ''} ${a.province || ''}`.toLowerCase();
       return hay.includes(q);
     });
@@ -219,7 +220,8 @@ export default function Space() {
 
   const handleImageClick = (e: React.MouseEvent, post: Post, imageIndex: number) => {
     e.stopPropagation();
-    const imgs = (post.images || []).filter(Boolean);
+    const raw = (post as any).images;
+    const imgs = (Array.isArray(raw) ? raw : []).filter(Boolean);
     if (!imgs.length) return;
     setImagePreview({ open: true, images: imgs, index: Math.max(0, Math.min(imageIndex, imgs.length - 1)) });
   };
@@ -282,7 +284,7 @@ export default function Space() {
       try {
         setIsLoadingAttractions(true);
         const attractions = await getAttractions();
-        setAllAttractions(attractions);
+        setAllAttractions(Array.isArray(attractions) ? attractions : []);
       } catch (error) {
         console.error('加载景区列表失败:', error);
       } finally {
@@ -413,9 +415,9 @@ export default function Space() {
               <p className="text-gray-800 mb-3">{post.content}</p>
 
               {/* 图片 */}
-              {post.images && post.images.length > 0 && (
+              {Array.isArray((post as any).images) && (post as any).images.length > 0 && (
                 <div className="grid grid-cols-3 gap-2 mb-3">
-                  {post.images.map((image, idx) => (
+                  {(post as any).images.map((image: string, idx: number) => (
                     <div 
                       key={idx} 
                       className="relative aspect-square cursor-pointer overflow-hidden rounded-lg"
