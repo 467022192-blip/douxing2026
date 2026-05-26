@@ -335,7 +335,6 @@ export default function Footprint() {
       )}
       {/* 顶部控制栏 (搜索 + 筛选) */}
       <div className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-white/90 to-transparent pt-4 pb-6 px-4">
-        <div className="text-sm font-semibold text-gray-900 mb-2">足迹所至，自有故事</div>
         <TopSearchStatsBar
           searchQuery={searchQuery}
           onSearchQueryChange={setSearchQuery}

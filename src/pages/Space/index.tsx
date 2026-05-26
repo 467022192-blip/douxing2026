@@ -326,7 +326,7 @@ export default function Space() {
       {/* 头部 */}
       <div className="bg-white px-4 py-3 sticky top-0 z-10 shadow-sm flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-sm font-semibold text-gray-900">行程所至，自有故事</h1>
+          <h1 className="text-sm font-semibold text-gray-900">行至远方，自有风光</h1>
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}
@@ -341,7 +341,7 @@ export default function Space() {
           className={`p-1.5 rounded-lg hover:bg-gray-100 transition-colors ${isAuthenticated ? 'text-gray-900' : 'text-gray-400'}`}
           aria-label="发布"
         >
-          <Camera className="w-[30px] h-[30px] sm:w-7 sm:h-7" />
+          <Camera className="w-6 h-6 sm:w-[22px] sm:h-[22px]" />
         </button>
       </div>
 
