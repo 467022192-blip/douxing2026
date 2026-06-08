@@ -91,9 +91,7 @@ export function useAttractionSearch(keyword: string, filterIds?: string[], provi
         setError(err);
         const fallback = getFallbackAttractions(keyword, filterIds, province);
         setData(fallback);
-        if (isRecommendedMode && fallback.length > 0) {
-          setFromCache(true);
-        }
+        setFromCache(false);
       }
       console.error(err);
     } finally {
