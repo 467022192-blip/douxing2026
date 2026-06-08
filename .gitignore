@@ -16,6 +16,7 @@ exports/
 *.har
 .agent-browser/
 .dbg/
+.vercel-global/
 
 # Editor directories and files
 .vscode/*
@@ -27,3 +28,4 @@ exports/
 *.njsproj
 *.sln
 *.sw?
+.vercel

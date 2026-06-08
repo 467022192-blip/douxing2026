@@ -4,6 +4,26 @@ import type { Database } from '../types/supabase';
 
 const supabase = supabaseClient;
 
+const formatSupabaseError = (error: unknown, fallbackMessage: string) => {
+  if (error instanceof Error) return error;
+
+  if (error && typeof error === 'object') {
+    const supabaseError = error as Partial<{
+      message: string;
+      details: string;
+      hint: string;
+      code: string;
+    }>;
+    const message = [supabaseError.message, supabaseError.details, supabaseError.hint, supabaseError.code]
+      .filter(Boolean)
+      .join(' | ');
+
+    if (message) return new Error(message);
+  }
+
+  return new Error(fallbackMessage);
+};
+
 // ==================== 用户相关 ====================
 
 /**
@@ -147,8 +167,9 @@ export const searchAttractions = async (keyword?: string, filterIds?: string[], 
   const { data, error } = await query.limit(3000);
 
   if (error) {
-    console.error('搜索景区失败:', error);
-    throw error;
+    const formattedError = formatSupabaseError(error, '搜索景区失败，请检查 Supabase 连接或 RLS 配置');
+    console.error('搜索景区失败:', formattedError.message);
+    throw formattedError;
   }
   
   return data as Attraction[];

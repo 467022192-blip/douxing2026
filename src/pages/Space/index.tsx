@@ -6,6 +6,10 @@ import { getPosts, getComments, addComment, createPost, uploadImage, checkLike, 
 import type { Post, Comment, Attraction } from '../../types';
 import ImagePreviewModal from '../../components/ImagePreviewModal';
 
+const getPostImages = (post: Post): string[] => {
+  return Array.isArray(post.images) ? post.images.filter((image): image is string => typeof image === 'string' && image.length > 0) : [];
+};
+
 export default function Space() {
   const navigate = useNavigate();
   const [posts, setPosts] = useState<Post[]>([]);
@@ -220,8 +224,7 @@ export default function Space() {
 
   const handleImageClick = (e: React.MouseEvent, post: Post, imageIndex: number) => {
     e.stopPropagation();
-    const raw = (post as any).images;
-    const imgs = (Array.isArray(raw) ? raw : []).filter(Boolean);
+    const imgs = getPostImages(post);
     if (!imgs.length) return;
     setImagePreview({ open: true, images: imgs, index: Math.max(0, Math.min(imageIndex, imgs.length - 1)) });
   };
@@ -415,9 +418,9 @@ export default function Space() {
               <p className="text-gray-800 mb-3">{post.content}</p>
 
               {/* 图片 */}
-              {Array.isArray((post as any).images) && (post as any).images.length > 0 && (
+              {getPostImages(post).length > 0 && (
                 <div className="grid grid-cols-3 gap-2 mb-3">
-                  {(post as any).images.map((image: string, idx: number) => (
+                  {getPostImages(post).map((image, idx) => (
                     <div 
                       key={idx} 
                       className="relative aspect-square cursor-pointer overflow-hidden rounded-lg"

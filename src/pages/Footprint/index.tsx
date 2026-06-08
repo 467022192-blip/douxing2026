@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { MapPin, X, CheckCircle2, Heart, Route, Database, Plus, Minus, Search } from 'lucide-react';
+import { MapPin, Route, Plus, Minus } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useAttractionSearch } from '../../hooks/useAttractionSearch';
