@@ -29,6 +29,7 @@ type LlmOption = {
 
 type OpenAiResponse = {
   choices?: Array<{
+    finish_reason?: string;
     message?: {
       content?: string;
     };
@@ -42,6 +43,22 @@ type AttractionCache = {
 
 const ATTRACTION_CACHE_TTL_MS = 10 * 60 * 1000;
 let attractionCache: AttractionCache | null = null;
+
+const reportGuideDebug = (hypothesisId: string, location: string, msg: string, data: Record<string, unknown>) => {
+  fetch('http://127.0.0.1:7777/event', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sessionId: 'guide-structure-error',
+      runId: 'pre-fix',
+      hypothesisId,
+      location,
+      msg,
+      data,
+      ts: Date.now(),
+    }),
+  }).catch(() => {});
+};
 
 const normalizeName = (value: string) =>
   value
@@ -92,7 +109,30 @@ const sanitizeLooseJson = (text: string) =>
     .replace(/,\s*([}\]])/g, '$1')
     .trim();
 
-const buildPrompt = (query: string) => `
+const extractRequestedDays = (query: string) => {
+  const match = query.match(/(\d{1,2})\s*(?:天|日)(?:\s*\d{0,2}\s*夜)?/);
+  if (!match) return null;
+  const days = Number(match[1]);
+  return Number.isFinite(days) && days > 0 ? days : null;
+};
+
+const getGenerationConfig = (query: string) => {
+  const requestedDays = extractRequestedDays(query);
+  const isLongTrip = (requestedDays ?? 0) >= 7;
+  const isVeryLongTrip = (requestedDays ?? 0) >= 10;
+  const maxTokens = requestedDays
+    ? Math.min(4200, Math.max(1800, 1400 + requestedDays * 190))
+    : 1800;
+
+  return {
+    requestedDays,
+    isLongTrip,
+    isVeryLongTrip,
+    maxTokens,
+  };
+};
+
+const buildPrompt = (query: string, config: ReturnType<typeof getGenerationConfig>) => `
 你是一个中文旅行规划助手。请根据用户需求输出 3 个不同风格的景点行程方案。
 
 要求：
@@ -105,6 +145,9 @@ const buildPrompt = (query: string) => `
 7. 风格要有差异，例如“轻松亲子”“经典海边”“自然风景”。
 8. 用户没有明确城市时可以合理假设，但不要编造过度细节。
 9. title 保持简洁，reason 控制在一两句话内。
+10. 如果用户明确提到了天数，days 的数量必须与天数一致。
+11. ${config.isLongTrip ? '长行程时请保持紧凑：每天只放 1-2 个核心景点，summary 一句话即可。' : '每一天可以安排 1-2 个核心景点。'}
+12. ${config.isVeryLongTrip ? '当天数 >= 10 时，优先保证每天都有内容，不要省略后半程。' : '不要省略任何一天。'}
 
 JSON 示例：
 {
@@ -133,13 +176,16 @@ JSON 示例：
 用户需求：${query}
 `;
 
-const buildRetryPrompt = (query: string) => `
+const buildRetryPrompt = (query: string, config: ReturnType<typeof getGenerationConfig>) => `
 你上一次返回的内容不是严格合法 JSON。请重新输出，并且严格遵守以下规则：
 1. 只输出一个合法 JSON 对象，不要输出任何解释、标题、注释或 Markdown 代码块。
 2. 所有字段名必须使用双引号。
 3. 所有字符串必须使用双引号。
 4. 不能出现尾逗号。
 5. 顶层结构必须是 {"options":[...]}，并且 options 恰好返回 3 个方案。
+6. 如果用户明确提到了天数，3 个方案里的 days 数量都必须与天数一致。
+7. ${config.isLongTrip ? '这是长行程，请每天只保留 1 个最核心景点或 1-2 个高度相关景点，summary 极简。' : '每天请保留 1-2 个核心景点。'}
+8. 不要让任何一个方案出现空 days，也不要让任何一天出现空 attractions。
 
 用户需求：${query}
 `;
@@ -166,6 +212,13 @@ const parseContent = (content: string): { options: LlmOption[] } => {
   }
 
   const errorMessage = lastError instanceof Error ? lastError.message : '未知解析错误';
+  // #region debug-point G:parse-content:failed
+  reportGuideDebug('G', 'ai-trip-plans:parseContent:failed', '[DEBUG] parse content failed', {
+    candidatePreview: candidate.slice(0, 1800),
+    sanitizedPreview: sanitizeLooseJson(candidate).slice(0, 1800),
+    errorMessage,
+  });
+  // #endregion
   throw new Error(`AI 返回的 JSON 格式不合法：${errorMessage}`);
 };
 
@@ -179,6 +232,34 @@ const isRetryableJsonParseError = (error: unknown) => {
     message.includes('bad control character')
   );
 };
+
+const buildMappedOptions = (parsed: { options: LlmOption[] }, attractions: AttractionRow[]) =>
+  parsed.options.map((option, optionIndex) => ({
+    id: `plan-${optionIndex + 1}`,
+    title: option.title?.trim() || `推荐方案 ${optionIndex + 1}`,
+    reason: option.reason?.trim() || '结合你的需求做了节奏、景观和人群偏好的平衡。',
+    days: Array.isArray(option.days)
+      ? option.days
+          .filter((day) => Array.isArray(day.attractions) && day.attractions.length > 0)
+          .map((day, dayIndex) => ({
+            day: Number.isFinite(day.day) ? Number(day.day) : dayIndex + 1,
+            title: day.title?.trim() || `第 ${dayIndex + 1} 天`,
+            attractions: (day.attractions || [])
+              .filter((item) => item?.name && item.name.trim())
+              .map((item) => ({
+                name: item.name!.trim(),
+                summary: item.summary?.trim() || '',
+                city: item.city?.trim() || '',
+                province: item.province?.trim() || '',
+                ...matchAttraction(item, attractions)
+              }))
+          }))
+          .filter((day) => day.attractions.length > 0)
+      : []
+  }));
+
+const hasIncompleteStructure = (options: Array<{ days: Array<{ attractions: Array<unknown> }> }>) =>
+  options.some((option) => option.days.length === 0 || option.days.some((day) => day.attractions.length === 0));
 
 const getAttractionsForMatching = async (supabaseUrl: string, supabaseAnonKey: string) => {
   const now = Date.now();
@@ -258,7 +339,8 @@ const requestCompletion = async (
   openAiApiKey: string,
   modelName: string,
   prompt: string,
-  temperature: number
+  temperature: number,
+  maxTokens: number
 ) => {
   const startedAt = Date.now();
   const llmResponse = await fetch(`${openAiBaseUrl}/chat/completions`, {
@@ -270,7 +352,7 @@ const requestCompletion = async (
     body: JSON.stringify({
       model: modelName,
       temperature,
-      max_tokens: 1800,
+      max_tokens: maxTokens,
       messages: [
         {
           role: 'system',
@@ -297,7 +379,8 @@ const requestCompletion = async (
 
   return {
     content,
-    durationMs: Date.now() - startedAt
+    durationMs: Date.now() - startedAt,
+    finishReason: completion.choices?.[0]?.finish_reason ?? null,
   };
 };
 
@@ -339,14 +422,16 @@ export default async function handler(req: any, res: any) {
 
   try {
     const totalStart = Date.now();
+    const generationConfig = getGenerationConfig(query);
     let modelMs = 0;
     let retried = false;
     const firstCompletion = await requestCompletion(
       openAiBaseUrl,
       openAiApiKey,
       modelName,
-      buildPrompt(query),
-      0.7
+      buildPrompt(query, generationConfig),
+      0.7,
+      generationConfig.maxTokens
     );
     modelMs += firstCompletion.durationMs;
 
@@ -362,46 +447,115 @@ export default async function handler(req: any, res: any) {
       }
 
       retried = true;
-      console.warn('[guide-ai-trip-plans] retrying after invalid JSON from model', {
-        error: error instanceof Error ? error.message : String(error)
+      // #region debug-point G:json-retry
+      reportGuideDebug('G', 'ai-trip-plans:json-retry', '[DEBUG] retrying after invalid json', {
+        requestedDays: generationConfig.requestedDays,
+        errorMessage: error instanceof Error ? error.message : String(error),
       });
+      // #endregion
 
       const retryCompletion = await requestCompletion(
         openAiBaseUrl,
         openAiApiKey,
         modelName,
-        buildRetryPrompt(query),
-        0.2
+        buildRetryPrompt(query, generationConfig),
+        0.2,
+        Math.min(4200, generationConfig.maxTokens + 500)
       );
       modelMs += retryCompletion.durationMs;
       parsed = parseContent(retryCompletion.content);
     }
 
-    const options = parsed.options.map((option, optionIndex) => ({
-      id: `plan-${optionIndex + 1}`,
-      title: option.title?.trim() || `推荐方案 ${optionIndex + 1}`,
-      reason: option.reason?.trim() || '结合你的需求做了节奏、景观和人群偏好的平衡。',
-      days: Array.isArray(option.days)
-        ? option.days
-            .filter((day) => Array.isArray(day.attractions) && day.attractions.length > 0)
-            .map((day, dayIndex) => ({
-              day: Number.isFinite(day.day) ? Number(day.day) : dayIndex + 1,
-              title: day.title?.trim() || `第 ${dayIndex + 1} 天`,
-              attractions: (day.attractions || [])
-                .filter((item) => item?.name && item.name.trim())
-                .map((item) => ({
-                  name: item.name!.trim(),
-                  summary: item.summary?.trim() || '',
-                  city: item.city?.trim() || '',
-                  province: item.province?.trim() || '',
-                  ...matchAttraction(item, attractionData.data)
-                }))
+    // #region debug-point G:parsed-options
+    reportGuideDebug('G', 'ai-trip-plans:parsed-options', '[DEBUG] parsed guide options', {
+      retried,
+      requestedDays: generationConfig.requestedDays,
+      finishReason: firstCompletion.finishReason,
+      optionCount: parsed.options.length,
+      optionShapes: parsed.options.map((option, index) => ({
+        index,
+        title: option.title ?? null,
+        daysCount: Array.isArray(option.days) ? option.days.length : null,
+        attractionsPerDay: Array.isArray(option.days)
+          ? option.days.map((day, dayIndex) => ({
+              dayIndex,
+              title: day.title ?? null,
+              attractionsCount: Array.isArray(day.attractions) ? day.attractions.length : null,
+              attractionNames: Array.isArray(day.attractions)
+                ? day.attractions.slice(0, 3).map((item) => item?.name ?? null)
+                : null,
             }))
-        : []
-    }));
+          : null,
+      })),
+    });
+    // #endregion
 
-    if (options.some((option) => option.days.length === 0)) {
-      return json(res, 502, { error: 'AI 返回的行程结构不完整，请重试一次。' });
+    let options = buildMappedOptions(parsed, attractionData.data);
+
+    // #region debug-point G:mapped-options
+    reportGuideDebug('G', 'ai-trip-plans:mapped-options', '[DEBUG] mapped guide options', {
+      retried,
+      optionCount: options.length,
+      optionShapes: options.map((option, index) => ({
+        index,
+        title: option.title,
+        daysCount: option.days.length,
+        attractionsPerDay: option.days.map((day) => ({
+          day: day.day,
+          title: day.title,
+          attractionsCount: day.attractions.length,
+          attractionNames: day.attractions.slice(0, 3).map((item) => item.name),
+        })),
+      })),
+    });
+    // #endregion
+
+    if (hasIncompleteStructure(options) || firstCompletion.finishReason === 'length') {
+      // #region debug-point G:structure-incomplete
+      reportGuideDebug('G', 'ai-trip-plans:structure-incomplete', '[DEBUG] guide structure incomplete', {
+        retried,
+        requestedDays: generationConfig.requestedDays,
+        finishReason: firstCompletion.finishReason,
+        optionShapes: options.map((option, index) => ({
+          index,
+          title: option.title,
+          daysCount: option.days.length,
+        })),
+      });
+      // #endregion
+
+      retried = true;
+      const structureRetry = await requestCompletion(
+        openAiBaseUrl,
+        openAiApiKey,
+        modelName,
+        buildRetryPrompt(query, generationConfig),
+        0.2,
+        Math.min(4200, generationConfig.maxTokens + 500)
+      );
+      modelMs += structureRetry.durationMs;
+      parsed = parseContent(structureRetry.content);
+      options = buildMappedOptions(parsed, attractionData.data);
+
+      // #region debug-point G:structure-retry
+      reportGuideDebug('G', 'ai-trip-plans:structure-retry', '[DEBUG] guide structure retry result', {
+        requestedDays: generationConfig.requestedDays,
+        finishReason: structureRetry.finishReason,
+        optionShapes: options.map((option, index) => ({
+          index,
+          title: option.title,
+          daysCount: option.days.length,
+          attractionsPerDay: option.days.map((day) => ({
+            day: day.day,
+            attractionsCount: day.attractions.length,
+          })),
+        })),
+      });
+      // #endregion
+
+      if (hasIncompleteStructure(options)) {
+        return json(res, 502, { error: 'AI 返回的行程结构不完整，请重试一次。' });
+      }
     }
 
     const matchMs = Date.now() - matchStart;
