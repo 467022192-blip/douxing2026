@@ -135,3 +135,36 @@ export interface SavedAiTripPlan {
   created_at?: string;
   updated_at?: string;
 }
+
+export interface SavedAiTripPlanSummary {
+  id: string;
+  input_query: string;
+  created_at?: string;
+}
+
+export interface PublicPopularAiTripPlanSummary {
+  id: string;
+  title: string;
+  summary: string;
+  cover_prompt: string;
+  author_nickname: string;
+  created_at?: string;
+}
+
+export interface PublicPopularAiTripPlanDetail {
+  id: string;
+  input_query: string;
+  result_json: TripPlanResult;
+  cover_prompt: string;
+  author_nickname: string;
+  created_at?: string;
+}
+
+export interface ResolvedAiTripPlanDetail {
+  id: string;
+  input_query: string;
+  result_json: TripPlanResult;
+  created_at?: string;
+  source: 'private' | 'public';
+  source_label: string;
+}

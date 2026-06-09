@@ -27,7 +27,9 @@ export default function BottomNav() {
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-md items-center justify-around">
         {navItems.map((item) => {
-          const isActive = location.pathname === item.path;
+          const isGuidePath =
+            location.pathname === '/ai-trip-planner' || location.pathname.startsWith('/ai-trip-planner/');
+          const isActive = item.path === '/ai-trip-planner' ? isGuidePath : location.pathname === item.path;
           return (
             <button
               key={item.path}

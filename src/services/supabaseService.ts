@@ -1,5 +1,14 @@
 import { supabase as supabaseClient } from '../lib/supabase';
-import type { UserProfile, UserCheckin, Post, Comment, Attraction, SavedAiTripPlan, TripPlanResult } from '../types';
+import type {
+  UserProfile,
+  UserCheckin,
+  Post,
+  Comment,
+  Attraction,
+  SavedAiTripPlan,
+  SavedAiTripPlanSummary,
+  TripPlanResult
+} from '../types';
 import type { Database } from '../types/supabase';
 
 const supabase = supabaseClient;
@@ -29,6 +38,14 @@ const toSavedAiTripPlan = (
 ): SavedAiTripPlan => ({
   ...row,
   result_json: row.result_json as unknown as TripPlanResult
+});
+
+const toSavedAiTripPlanSummary = (
+  row: Pick<Database['public']['Tables']['ai_trip_plans']['Row'], 'id' | 'input_query' | 'created_at'>
+): SavedAiTripPlanSummary => ({
+  id: row.id,
+  input_query: row.input_query,
+  created_at: row.created_at
 });
 
 // ==================== 用户相关 ====================
@@ -231,6 +248,32 @@ export const getAiTripPlansByUser = async (userId: string): Promise<SavedAiTripP
 
   if (error) throw formatSupabaseError(error, '获取 AI 行程规划历史失败');
   return (data || []).map((item) => toSavedAiTripPlan(item));
+};
+
+export const getAiTripPlanSummariesByUser = async (
+  userId: string,
+  limit = 20
+): Promise<SavedAiTripPlanSummary[]> => {
+  const { data, error } = await supabase
+    .from('ai_trip_plans')
+    .select('id,input_query,created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw formatSupabaseError(error, '获取攻略摘要列表失败');
+  return (data || []).map((item) => toSavedAiTripPlanSummary(item));
+};
+
+export const getAiTripPlanById = async (id: string): Promise<SavedAiTripPlan> => {
+  const { data, error } = await supabase
+    .from('ai_trip_plans')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error) throw formatSupabaseError(error, '获取攻略详情失败');
+  return toSavedAiTripPlan(data);
 };
 
 

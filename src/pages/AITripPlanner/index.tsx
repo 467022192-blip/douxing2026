@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { Bookmark, Loader2, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import GuideComposer from './components/GuideComposer';
 import GuideGeneratingState from './components/GuideGeneratingState';
-import GuideHero from './components/GuideHero';
-import GuideHistoryList from './components/GuideHistoryList';
+import GuidePageHeader from './components/GuidePageHeader';
+import GuidePopularSection from './components/GuidePopularSection';
 import GuideResultCard from './components/GuideResultCard';
 import { useAuthStore } from '../../stores/authStore';
-import { generateAiTripPlans, getMyAiTripPlans, saveAiTripPlan } from '../../services/aiTripPlannerService';
-import type { SavedAiTripPlan, TripPlanResult } from '../../types';
+import { generateAiTripPlans, getMyAiTripPlans, getPopularAiTripPlans, saveAiTripPlan } from '../../services/aiTripPlannerService';
+import type { PublicPopularAiTripPlanSummary, SavedAiTripPlan, TripPlanResult } from '../../types';
 import { trackEvent } from '../../utils/monitoring';
 
 const EXAMPLE_QUERIES = [
@@ -21,6 +21,23 @@ const STAGE_LABELS = ['正在理解你的需求', '正在组合景点攻略', '�
 const SOFT_TIMEOUT_MS = 20_000;
 const HARD_TIMEOUT_MS = 35_000;
 const SAME_QUERY_GUARD_MS = 2_500;
+const POPULAR_FAVORITES_STORAGE_KEY = 'guide-popular-favorites';
+const SAVED_GUIDE_COVER_VARIANTS = [
+  'premium aerial travel photo, layered landscape, cinematic depth',
+  'editorial travel cover, wide scenic composition, crisp daylight',
+  'realistic lifestyle travel shot, textured foreground, natural atmosphere',
+  'high-end mobile cover image, distinctive angle, clean scenic framing'
+];
+
+type PopularGuideListItem = {
+  id: string;
+  title: string;
+  summary: string;
+  metaText: string;
+  coverPrompt: string;
+  detailId: string;
+  rank: number;
+};
 
 type GenerateState = 'idle' | 'generating' | 'soft-timeout' | 'retrying' | 'failed';
 
@@ -28,16 +45,50 @@ type PendingGenerateOptions = {
   retry?: boolean;
 };
 
-const INSPIRATION_CARDS = [
-  {
-    title: '秋天适合去哪玩',
-    summary: '输入天数、出发地和偏好，快速拿到 3 套轻重不同的景点攻略。'
-  },
-  {
-    title: '周末两天怎么安排',
-    summary: '适合亲子、轻松、海边、自然风景等出行场景，先给你清晰灵感。'
-  }
-];
+type GeneratedSnapshot = {
+  query: string;
+  result: TripPlanResult;
+};
+
+const buildSavedGuideListItem = (
+  item: SavedAiTripPlan,
+  index: number,
+  userNickname?: string
+): PopularGuideListItem => {
+  const firstOption = item.result_json.options[0];
+  const title = firstOption?.title || item.input_query;
+  const summary = firstOption?.reason || item.input_query;
+  const titlePrompt = [title, firstOption?.days[0]?.title, item.input_query, SAVED_GUIDE_COVER_VARIANTS[index % SAVED_GUIDE_COVER_VARIANTS.length]]
+    .filter(Boolean)
+    .join(', ');
+
+  return {
+    id: `private-${item.id}`,
+    title,
+    summary,
+    metaText: item.created_at
+      ? `${dayjs(item.created_at).format('YYYY年M月D日')}·${userNickname || '我的攻略'}`
+      : userNickname || '我的攻略',
+    coverPrompt: titlePrompt || 'China travel destination, premium scenic photography',
+    detailId: item.id,
+    rank: 300 - index
+  };
+};
+
+const buildPublicGuideListItem = (
+  item: PublicPopularAiTripPlanSummary,
+  index: number
+): PopularGuideListItem => ({
+  id: item.id,
+  title: item.title,
+  summary: item.summary,
+  metaText: item.created_at
+    ? `${dayjs(item.created_at).format('YYYY年M月D日')}·${item.author_nickname}`
+    : item.author_nickname,
+  coverPrompt: item.cover_prompt,
+  detailId: item.id,
+  rank: 200 - index
+});
 
 const getStorageErrorMessage = (error: unknown) => {
   const message = error instanceof Error ? error.message : '';
@@ -60,16 +111,16 @@ export default function AITripPlanner() {
 
   const [query, setQuery] = useState(EXAMPLE_QUERIES[0]);
   const [result, setResult] = useState<TripPlanResult | null>(null);
-  const [historyItems, setHistoryItems] = useState<SavedAiTripPlan[]>([]);
-  const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [saveMessage, setSaveMessage] = useState('');
   const [generateState, setGenerateState] = useState<GenerateState>('idle');
   const [stageLabel, setStageLabel] = useState(STAGE_LABELS[0]);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [showTimeoutActions, setShowTimeoutActions] = useState(false);
+  const [latestSavedPlanId, setLatestSavedPlanId] = useState<string | null>(null);
+  const [pendingAutoSaveSnapshot, setPendingAutoSaveSnapshot] = useState<GeneratedSnapshot | null>(null);
+  const [popularSavedPlans, setPopularSavedPlans] = useState<SavedAiTripPlan[]>([]);
+  const [publicPopularPlans, setPublicPopularPlans] = useState<PublicPopularAiTripPlanSummary[]>([]);
+  const [favoritePopularIds, setFavoritePopularIds] = useState<string[]>([]);
 
   const abortRef = useRef<AbortController | null>(null);
   const activeRequestIdRef = useRef(0);
@@ -120,42 +171,64 @@ export default function AITripPlanner() {
     setShowTimeoutActions(false);
   }, [clearTimers]);
 
-  const loadHistory = useCallback(async () => {
-    if (!user?.id) {
-      setHistoryItems([]);
-      return;
-    }
-
-    setIsHistoryLoading(true);
-    try {
-      const data = await getMyAiTripPlans(user.id);
-      setHistoryItems(data);
-    } catch (error) {
-      setErrorMessage(getStorageErrorMessage(error));
-    } finally {
-      setIsHistoryLoading(false);
-    }
-  }, [user?.id]);
-
   useEffect(() => {
     trackEvent('guide_page_expose', { isAuthenticated });
   }, [isAuthenticated]);
 
   useEffect(() => {
-    if (isAuthenticated && user?.id) {
-      void loadHistory();
-    } else {
-      setHistoryItems([]);
-      setSelectedHistoryId(null);
+    try {
+      const saved = window.localStorage.getItem(POPULAR_FAVORITES_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setFavoritePopularIds(parsed.filter((item): item is string => typeof item === 'string'));
+        }
+      }
+    } catch {
+      setFavoritePopularIds([]);
     }
-  }, [isAuthenticated, loadHistory, user?.id]);
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(POPULAR_FAVORITES_STORAGE_KEY, JSON.stringify(favoritePopularIds));
+  }, [favoritePopularIds]);
+
+  useEffect(() => {
+    const loadPopularPlans = async () => {
+      try {
+        const data = await getPopularAiTripPlans();
+        setPublicPopularPlans(data);
+      } catch {
+        setPublicPopularPlans([]);
+      }
+    };
+
+    void loadPopularPlans();
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) {
+      setPopularSavedPlans([]);
+      return;
+    }
+
+    const loadMyPopularPlans = async () => {
+      try {
+        const data = await getMyAiTripPlans(user.id);
+        setPopularSavedPlans(data.slice(0, 4));
+      } catch {
+        setPopularSavedPlans([]);
+      }
+    };
+
+    void loadMyPopularPlans();
+  }, [isAuthenticated, user?.id]);
 
   useEffect(() => () => {
     abortRef.current?.abort();
     clearTimers();
   }, [clearTimers]);
 
-  const canSave = Boolean(result && isAuthenticated && user?.id);
   const isGenerating = generateState === 'generating' || generateState === 'soft-timeout' || generateState === 'retrying';
   const elapsedSeconds = Math.max(1, Math.round(elapsedMs / 1000));
 
@@ -206,9 +279,9 @@ export default function AITripPlanner() {
     lastRequestRef.current = { query: trimmed, at: now };
 
     setErrorMessage('');
-    setSaveMessage('');
     setResult(null);
-    setSelectedHistoryId(null);
+    setLatestSavedPlanId(null);
+    setPendingAutoSaveSnapshot(null);
     beginProgress(Boolean(options?.retry));
 
     trackEvent(options?.retry ? 'guide_retry_click' : 'guide_generate_click', {
@@ -226,6 +299,7 @@ export default function AITripPlanner() {
       setGenerateState('idle');
       setStageLabel(STAGE_LABELS[0]);
       setResult(nextResult);
+
       trackEvent('guide_generate_success', {
         requestId,
         totalClientMs: Date.now() - clientStart,
@@ -239,6 +313,35 @@ export default function AITripPlanner() {
       trackEvent(nextResult.meta?.cacheHit ? 'guide_attraction_cache_hit' : 'guide_attraction_cache_miss', {
         requestId
       });
+
+      if (isAuthenticated && user?.id) {
+        const snapshot = {
+          query: trimmed,
+          result: nextResult
+        };
+        trackEvent('guide_auto_save_start', { requestId });
+
+        try {
+          const saved = await saveAiTripPlan(user.id, snapshot.query, snapshot.result);
+          setLatestSavedPlanId(saved.id);
+          setPopularSavedPlans((current) => {
+            const nextItem: SavedAiTripPlan = {
+              id: saved.id,
+              user_id: user.id,
+              input_query: snapshot.query,
+              result_json: snapshot.result,
+              created_at: saved.created_at
+            };
+
+            return [nextItem, ...current.filter((item) => item.id !== saved.id)].slice(0, 4);
+          });
+          trackEvent('guide_auto_save_success', { id: saved.id, requestId });
+        } catch (error) {
+          setPendingAutoSaveSnapshot(snapshot);
+          setErrorMessage(getStorageErrorMessage(error) || '攻略已生成，但保存失败，可稍后再试');
+          trackEvent('guide_auto_save_fail', { requestId });
+        }
+      }
     } catch (error) {
       if (requestId !== activeRequestIdRef.current) return;
       stopProgress();
@@ -258,7 +361,7 @@ export default function AITripPlanner() {
         message: nextMessage
       });
     }
-  }, [beginProgress, isGenerating, query, stopProgress]);
+  }, [beginProgress, isAuthenticated, isGenerating, query, stopProgress, user?.id]);
 
   const handleContinueWait = useCallback(() => {
     setShowTimeoutActions(false);
@@ -268,63 +371,97 @@ export default function AITripPlanner() {
     });
   }, [elapsedSeconds]);
 
-  const handleSave = async () => {
-    if (!result) return;
+  const handleRetrySave = useCallback(async () => {
+    if (!pendingAutoSaveSnapshot || !user?.id) return;
 
-    if (!isAuthenticated || !user?.id) {
-      if (window.confirm('保存攻略需要先登录，是否前往登录？')) {
-        navigate('/login');
-      }
-      return;
-    }
-
-    setIsSaving(true);
     setErrorMessage('');
-    setSaveMessage('');
-    trackEvent('guide_save_click', { hasMeta: Boolean(result.meta) });
+    trackEvent('guide_auto_save_start', { source: 'manual-retry' });
     try {
-      const saved = await saveAiTripPlan(user.id, query.trim(), result);
-      setSaveMessage('已保存到你的攻略历史。');
-      setSelectedHistoryId(saved.id);
-      trackEvent('guide_save_success', { id: saved.id });
-      await loadHistory();
+      const saved = await saveAiTripPlan(
+        user.id,
+        pendingAutoSaveSnapshot.query,
+        pendingAutoSaveSnapshot.result
+      );
+      setLatestSavedPlanId(saved.id);
+      setPendingAutoSaveSnapshot(null);
+      trackEvent('guide_auto_save_success', { id: saved.id, source: 'manual-retry' });
     } catch (error) {
       setErrorMessage(getStorageErrorMessage(error));
-    } finally {
-      setIsSaving(false);
+      trackEvent('guide_auto_save_fail', { source: 'manual-retry' });
     }
-  };
+  }, [pendingAutoSaveSnapshot, user?.id]);
+
+  const handleGoLogin = useCallback(() => {
+    navigate('/login', {
+      state: { redirectTo: '/ai-trip-planner/history' }
+    });
+  }, [navigate]);
+
+  const handleOpenHistory = useCallback(() => {
+    navigate('/ai-trip-planner/history');
+  }, [navigate]);
 
   const handleUseExample = (value: string) => {
     setQuery(value);
     setErrorMessage('');
-    setSaveMessage('');
-  };
-
-  const handleOpenHistory = (item: SavedAiTripPlan) => {
-    setQuery(item.input_query);
-    setResult(item.result_json);
-    setSelectedHistoryId(item.id);
-    setErrorMessage('');
-    setSaveMessage('');
-    trackEvent('guide_history_open', { id: item.id });
   };
 
   const handleOpenDetail = (id: string) => {
     navigate(`/attraction/${id}`);
   };
 
-  return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,#eef8ff_0%,#f8fbff_22%,#f8fafc_100%)] pb-24">
-      <div className="mx-auto max-w-md px-4 pb-8 pt-4">
-        <GuideHero />
+  const togglePopularFavorite = useCallback((id: string) => {
+    setFavoritePopularIds((current) => {
+      const exists = current.includes(id);
+      trackEvent(exists ? 'guide_popular_unfavorite' : 'guide_popular_favorite', { id });
+      return exists ? current.filter((item) => item !== id) : [...current, id];
+    });
+  }, []);
 
-        <div className="-mt-5 px-1">
+  const popularGuideItems = useMemo(() => {
+    const ownGuides = popularSavedPlans.slice(0, 2).map((item, index) => buildSavedGuideListItem(item, index, user?.nickname));
+    const publicGuides = publicPopularPlans.map(buildPublicGuideListItem);
+    const mergedGuides = [...ownGuides, ...publicGuides]
+      .sort((left, right) => right.rank - left.rank)
+      .slice(0, 6);
+
+    return mergedGuides.map((item) => ({
+      id: item.id,
+      title: item.title,
+      summary: item.summary,
+      metaText: item.metaText,
+      coverPrompt: item.coverPrompt,
+      isFavorited: favoritePopularIds.includes(item.id),
+      onToggleFavorite: () => togglePopularFavorite(item.id),
+      onClick: () => {
+        trackEvent('guide_popular_card_open', { id: item.detailId });
+        navigate(`/ai-trip-planner/history/${item.detailId}`, {
+          state: { backTo: '/ai-trip-planner' }
+        });
+      }
+    }));
+  }, [favoritePopularIds, navigate, popularSavedPlans, publicPopularPlans, togglePopularFavorite, user?.nickname]);
+
+  const resultMetaText = useMemo(() => {
+    const base = [latestSavedAt, latestDuration].filter(Boolean).join(' · ');
+    if (!base) return '已生成 3 套景点攻略';
+    if (latestSavedPlanId) return `${base} 已自动保存至“我的攻略”`;
+    return base;
+  }, [latestDuration, latestSavedAt, latestSavedPlanId]);
+
+  return (
+    <div className="relative min-h-screen overflow-hidden bg-[linear-gradient(180deg,#f4f7fb_0%,#f7fafc_56%,#f9fafb_100%)] pb-24">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[320px] bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.28),rgba(45,212,191,0.18)_36%,rgba(59,130,246,0.08)_52%,rgba(249,250,251,0)_74%)]" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[240px] bg-gradient-to-b from-emerald-100/95 via-teal-100/65 to-transparent" />
+
+      <div className="relative mx-auto max-w-md px-4 pb-8 pt-4">
+        <GuidePageHeader onOpenHistory={handleOpenHistory} />
+
+        <div className="mt-5 px-1">
           <GuideComposer
             query={query}
             examples={EXAMPLE_QUERIES}
             isGenerating={isGenerating}
-            helperText={isGenerating ? '通常 15-30 秒，复杂需求会更久' : '示例问题可直接点击后生成'}
             onQueryChange={setQuery}
             onUseExample={handleUseExample}
             onSubmit={() => {
@@ -335,13 +472,18 @@ export default function AITripPlanner() {
 
         {errorMessage ? (
           <div className="mt-4 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm leading-6 text-red-600">
-            {errorMessage}
-          </div>
-        ) : null}
-
-        {saveMessage ? (
-          <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-700">
-            {saveMessage}
+            <div>{errorMessage}</div>
+            {pendingAutoSaveSnapshot && isAuthenticated ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void handleRetrySave();
+                }}
+                className="mt-3 inline-flex rounded-full bg-white px-3 py-1.5 text-xs font-medium text-red-600 ring-1 ring-red-100"
+              >
+                重新尝试保存
+              </button>
+            ) : null}
           </div>
         ) : null}
 
@@ -364,10 +506,8 @@ export default function AITripPlanner() {
           <section className="mt-5">
             <div className="flex items-center justify-between gap-3 px-1">
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">为你生成的 3 套攻略</h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  {[latestSavedAt && `更新于 ${latestSavedAt}`, latestDuration].filter(Boolean).join(' · ') || '已生成 3 套景点攻略'}
-                </p>
+                <h2 className="text-lg font-semibold text-gray-800">为你生成的 3 套攻略</h2>
+                <p className="mt-1 text-xs leading-5 text-gray-500">{resultMetaText}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -376,28 +516,24 @@ export default function AITripPlanner() {
                     void triggerGenerate({ retry: true });
                   }}
                   disabled={isGenerating}
-                  className="rounded-full bg-white p-2 text-slate-500 shadow-sm ring-1 ring-slate-100"
+                  className="rounded-full bg-white p-2 text-gray-500 shadow-sm ring-1 ring-gray-100"
                   aria-label="重新生成"
                 >
                   <RefreshCw className={`h-4 w-4 ${isGenerating ? 'animate-spin' : ''}`} />
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium ${
-                    canSave ? 'bg-slate-900 text-white' : 'bg-white text-slate-500 ring-1 ring-slate-100'
-                  }`}
-                >
-                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bookmark className="h-4 w-4" />}
-                  {isAuthenticated ? '保存这份攻略' : '登录后可保存'}
                 </button>
               </div>
             </div>
 
             {!isAuthenticated ? (
               <div className="mt-3 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-700">
-                你可以先试用攻略生成，登录后可保存到历史中随时回看。
+                <div>你可以先试用攻略生成，登录后会自动保存到我的攻略。</div>
+                <button
+                  type="button"
+                  onClick={handleGoLogin}
+                  className="mt-3 inline-flex rounded-full bg-white px-3 py-1.5 text-xs font-medium text-amber-700 ring-1 ring-amber-100"
+                >
+                  登录后保存
+                </button>
               </div>
             ) : null}
 
@@ -407,29 +543,9 @@ export default function AITripPlanner() {
               ))}
             </div>
           </section>
-        ) : (
-          <section className="mt-5 grid grid-cols-2 gap-3">
-            {INSPIRATION_CARDS.map((card) => (
-              <article
-                key={card.title}
-                className="rounded-[24px] border border-white/80 bg-white/90 p-4 shadow-sm ring-1 ring-slate-100/80"
-              >
-                <p className="text-sm font-semibold text-slate-900">{card.title}</p>
-                <p className="mt-2 text-xs leading-5 text-slate-500">{card.summary}</p>
-              </article>
-            ))}
-          </section>
-        )}
+        ) : null}
 
-        <div className="mt-6">
-          <GuideHistoryList
-            isAuthenticated={isAuthenticated}
-            isLoading={isHistoryLoading}
-            items={historyItems}
-            selectedId={selectedHistoryId}
-            onOpenHistory={handleOpenHistory}
-          />
-        </div>
+        <GuidePopularSection items={popularGuideItems} />
       </div>
     </div>
   );

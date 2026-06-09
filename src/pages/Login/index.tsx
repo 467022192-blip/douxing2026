@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, User, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 
@@ -7,6 +7,7 @@ type AuthMode = 'login' | 'register';
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { loginWithEmail, registerWithEmail, loginAsGuest } = useAuthStore();
   const [mode, setMode] = useState<AuthMode>('login');
   const [showPassword, setShowPassword] = useState(false);
@@ -16,6 +17,10 @@ export default function Login() {
   const [showAutoRegisterPrompt, setShowAutoRegisterPrompt] = useState(false);
   const [pendingCredentials, setPendingCredentials] = useState<{ email: string; password: string } | null>(null);
   const [pendingLoginError, setPendingLoginError] = useState<string>('');
+  const redirectTo = useMemo(() => {
+    const next = (location.state as { redirectTo?: string } | null)?.redirectTo;
+    return next || '/profile';
+  }, [location.state]);
 
   // 表单数据
   const [formData, setFormData] = useState({
@@ -37,7 +42,7 @@ export default function Login() {
           setPendingLoginError(error.message || '登录失败，请检查邮箱和密码');
           setShowAutoRegisterPrompt(true);
         } else {
-          navigate('/profile');
+          navigate(redirectTo, { replace: true });
         }
       } else {
         if (!formData.nickname.trim()) {
@@ -55,7 +60,7 @@ export default function Login() {
         } else if (needsEmailConfirmation) {
           setRegistrationSuccess(true);
         } else {
-          navigate('/profile');
+          navigate(redirectTo, { replace: true });
         }
       }
     } catch {
@@ -99,7 +104,7 @@ export default function Login() {
       if (needsEmailConfirmation) {
         setRegistrationSuccess(true);
       } else {
-        navigate('/profile');
+        navigate(redirectTo, { replace: true });
       }
     } catch {
       setError('创建账号失败，请稍后重试');
@@ -360,7 +365,7 @@ export default function Login() {
               if (error) {
                 setError(error.message);
               } else {
-                navigate(-1);
+                navigate(redirectTo, { replace: true });
               }
             }}
             disabled={isLoading}
