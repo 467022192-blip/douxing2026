@@ -56,6 +56,42 @@ const normalizeResponseText = (text: string) => {
   return trimmed.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
 };
 
+const extractJsonCandidate = (text: string) => {
+  const normalized = normalizeResponseText(text).replace(/^\uFEFF/, '').trim();
+  const firstBraceIndex = normalized.indexOf('{');
+  const lastBraceIndex = normalized.lastIndexOf('}');
+  if (firstBraceIndex !== -1 && lastBraceIndex !== -1 && lastBraceIndex > firstBraceIndex) {
+    return normalized.slice(firstBraceIndex, lastBraceIndex + 1);
+  }
+  return normalized;
+};
+
+const escapeJsonString = (value: string) =>
+  value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/\t/g, '\\t');
+
+const sanitizeLooseJson = (text: string) =>
+  text
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1')
+    .replace(/([{,]\s*)'([^'\\]*(?:\\.[^'\\]*)*)'(\s*:)/g, (_match, prefix, key, suffix) => {
+      const normalizedKey = String(key).replace(/\\'/g, "'");
+      return `${prefix}"${escapeJsonString(normalizedKey)}"${suffix}`;
+    })
+    .replace(/([{,]\s*)([A-Za-z_$][\w$-]*)(\s*:)/g, '$1"$2"$3')
+    .replace(/:\s*'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_match, value) => {
+      const normalizedValue = String(value).replace(/\\'/g, "'");
+      return `: "${escapeJsonString(normalizedValue)}"`;
+    })
+    .replace(/,\s*([}\]])/g, '$1')
+    .trim();
+
 const buildPrompt = (query: string) => `
 你是一个中文旅行规划助手。请根据用户需求输出 3 个不同风格的景点行程方案。
 
@@ -97,13 +133,51 @@ JSON 示例：
 用户需求：${query}
 `;
 
-const parseContent = (content: string): { options: LlmOption[] } => {
-  const normalized = normalizeResponseText(content);
-  const parsed = JSON.parse(normalized) as { options?: LlmOption[] };
+const buildRetryPrompt = (query: string) => `
+你上一次返回的内容不是严格合法 JSON。请重新输出，并且严格遵守以下规则：
+1. 只输出一个合法 JSON 对象，不要输出任何解释、标题、注释或 Markdown 代码块。
+2. 所有字段名必须使用双引号。
+3. 所有字符串必须使用双引号。
+4. 不能出现尾逗号。
+5. 顶层结构必须是 {"options":[...]}，并且 options 恰好返回 3 个方案。
+
+用户需求：${query}
+`;
+
+const validateParsedOptions = (parsed: { options?: LlmOption[] }) => {
   if (!Array.isArray(parsed.options) || parsed.options.length < 3) {
     throw new Error('模型返回的方案数量不足 3 个');
   }
   return { options: parsed.options.slice(0, 3) };
+};
+
+const parseContent = (content: string): { options: LlmOption[] } => {
+  const candidate = extractJsonCandidate(content);
+  const attempts = [candidate, sanitizeLooseJson(candidate)].filter(Boolean);
+  let lastError: unknown = null;
+
+  for (const attempt of attempts) {
+    try {
+      const parsed = JSON.parse(attempt) as { options?: LlmOption[] };
+      return validateParsedOptions(parsed);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  const errorMessage = lastError instanceof Error ? lastError.message : '未知解析错误';
+  throw new Error(`AI 返回的 JSON 格式不合法：${errorMessage}`);
+};
+
+const isRetryableJsonParseError = (error: unknown) => {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    message.includes('json') ||
+    message.includes('unexpected token') ||
+    message.includes('double-quoted property name') ||
+    message.includes('unterminated string') ||
+    message.includes('bad control character')
+  );
 };
 
 const getAttractionsForMatching = async (supabaseUrl: string, supabaseAnonKey: string) => {
@@ -179,6 +253,54 @@ const json = (res: any, status: number, payload: unknown) => {
   res.end(JSON.stringify(payload));
 };
 
+const requestCompletion = async (
+  openAiBaseUrl: string,
+  openAiApiKey: string,
+  modelName: string,
+  prompt: string,
+  temperature: number
+) => {
+  const startedAt = Date.now();
+  const llmResponse = await fetch(`${openAiBaseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${openAiApiKey}`
+    },
+    body: JSON.stringify({
+      model: modelName,
+      temperature,
+      max_tokens: 1800,
+      messages: [
+        {
+          role: 'system',
+          content: '你是一个擅长中文家庭旅行和景点行程规划的助手。'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ]
+    })
+  });
+
+  if (!llmResponse.ok) {
+    const errorText = await llmResponse.text();
+    throw new Error(`AI 服务调用失败：${errorText || llmResponse.statusText}`);
+  }
+
+  const completion = (await llmResponse.json()) as OpenAiResponse;
+  const content = completion.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error('AI 服务未返回有效内容。');
+  }
+
+  return {
+    content,
+    durationMs: Date.now() - startedAt
+  };
+};
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -217,45 +339,43 @@ export default async function handler(req: any, res: any) {
 
   try {
     const totalStart = Date.now();
-    const modelStart = Date.now();
-    const llmResponse = await fetch(`${openAiBaseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${openAiApiKey}`
-      },
-      body: JSON.stringify({
-        model: modelName,
-        temperature: 0.7,
-        max_tokens: 1800,
-        messages: [
-          {
-            role: 'system',
-            content: '你是一个擅长中文家庭旅行和景点行程规划的助手。'
-          },
-          {
-            role: 'user',
-            content: buildPrompt(query)
-          }
-        ]
-      })
-    });
+    let modelMs = 0;
+    let retried = false;
+    const firstCompletion = await requestCompletion(
+      openAiBaseUrl,
+      openAiApiKey,
+      modelName,
+      buildPrompt(query),
+      0.7
+    );
+    modelMs += firstCompletion.durationMs;
 
-    if (!llmResponse.ok) {
-      const errorText = await llmResponse.text();
-      return json(res, 502, { error: `AI 服务调用失败：${errorText || llmResponse.statusText}` });
-    }
-
-    const completion = (await llmResponse.json()) as OpenAiResponse;
-    const content = completion.choices?.[0]?.message?.content;
-    if (!content) {
-      return json(res, 502, { error: 'AI 服务未返回有效内容。' });
-    }
-
-    const modelMs = Date.now() - modelStart;
     const matchStart = Date.now();
     const attractionData = await getAttractionsForMatching(supabaseUrl, supabaseAnonKey);
-    const parsed = parseContent(content);
+    let parsed: { options: LlmOption[] };
+
+    try {
+      parsed = parseContent(firstCompletion.content);
+    } catch (error) {
+      if (!isRetryableJsonParseError(error)) {
+        throw error;
+      }
+
+      retried = true;
+      console.warn('[guide-ai-trip-plans] retrying after invalid JSON from model', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+
+      const retryCompletion = await requestCompletion(
+        openAiBaseUrl,
+        openAiApiKey,
+        modelName,
+        buildRetryPrompt(query),
+        0.2
+      );
+      modelMs += retryCompletion.durationMs;
+      parsed = parseContent(retryCompletion.content);
+    }
 
     const options = parsed.options.map((option, optionIndex) => ({
       id: `plan-${optionIndex + 1}`,
@@ -303,7 +423,7 @@ export default async function handler(req: any, res: any) {
         modelMs,
         matchMs,
         cacheHit: attractionData.cacheHit,
-        retried: false
+        retried
       }
     });
   } catch (error) {
