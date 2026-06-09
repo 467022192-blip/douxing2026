@@ -80,7 +80,7 @@
 2. Vercel → New Project → Import
 3. Framework 选择 Vite（项目已提供 `vercel.json`）
 
-建议在 Vercel Project → Settings → General 中将 Node.js 版本设置为 `20.x`。
+建议在 Vercel Project → Settings → General 中将 Node.js 版本设置为 `24.x`。
 
 ### 7.2 Vercel 环境变量
 
@@ -104,7 +104,7 @@
 
 推荐处理：
 
-1. 使用 Node `20.x`（本项目已添加 `.nvmrc` 与 `package.json#engines`）
+1. 使用 Node `24.x`（本项目已添加 `.nvmrc` 与 `package.json#engines`）
 2. 确保使用 `npm ci` 安装依赖（本项目已在 `vercel.json` 设置 `installCommand`）
 3. 在 Vercel 重新部署前点击一次 "Clear build cache"
 

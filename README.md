@@ -50,7 +50,7 @@ public/              静态资源
 
 ## 环境要求
 
-- Node.js 20.x
+- Node.js 24.x
 - pnpm 9.x（项目声明的包管理器）
 - Supabase 项目
 - 百度地图 Web 服务 AK
