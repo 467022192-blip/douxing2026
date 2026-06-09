@@ -6,7 +6,7 @@ import { getLocalCache, setLocalCache } from '../utils/localCache';
 
 const RECOMMENDED_CACHE_KEY = 'attractions:recommended:v2';
 const RECOMMENDED_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const SEARCH_TIMEOUT_MS = 10000;
+const SEARCH_TIMEOUT_MS = 4000;
 
 const getFallbackAttractions = (keyword: string, filterIds?: string[], province?: string) => {
   const normalizedKeyword = keyword.trim().toLowerCase();
