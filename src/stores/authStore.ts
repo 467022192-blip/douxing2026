@@ -3,7 +3,85 @@ import { persist } from 'zustand/middleware';
 import { supabase } from '../lib/supabase';
 import type { UserProfile } from '../types';
 import type { Database } from '../types/supabase';
-import { getAppPublicUrl } from '../config/env';
+import { env, getAppPublicUrl } from '../config/env';
+
+const reportAuthDebug = (hypothesisId: string, location: string, msg: string, data: Record<string, unknown>) => {
+  fetch('http://127.0.0.1:7777/event', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sessionId: 'prod-supabase-auth',
+      runId: 'pre-fix',
+      hypothesisId,
+      location,
+      msg,
+      data,
+      ts: Date.now(),
+    }),
+  }).catch(() => {});
+};
+
+const AUTH_RECOVERY_TIMEOUT_MS = 2500;
+const AUTH_STORAGE_KEY = env.supabaseUrl
+  ? `sb-${new URL(env.supabaseUrl).hostname.split('.')[0]}-auth-token`
+  : null;
+
+const withAuthTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+};
+
+const getAuthStorageValue = () => {
+  if (typeof window === 'undefined' || !AUTH_STORAGE_KEY) return null;
+  return window.localStorage.getItem(AUTH_STORAGE_KEY);
+};
+
+const clearAuthStorage = () => {
+  if (typeof window === 'undefined' || !AUTH_STORAGE_KEY) return;
+  window.localStorage.removeItem(AUTH_STORAGE_KEY);
+};
+
+const isRecoverableAuthError = (error: unknown) => {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return [
+    'refresh token',
+    'refresh_token',
+    'invalid jwt',
+    'jwt malformed',
+    'auth session missing',
+    'session from storage is not valid',
+    'auth recovery timeout',
+  ].some((keyword) => message.includes(keyword));
+};
+
+const recoverBrokenAuthState = async (reason: string, error: unknown) => {
+  // #region debug-point E:recover:start
+  reportAuthDebug('E', 'authStore:recoverBrokenAuthState:start', '[DEBUG] auth recovery start', {
+    reason,
+    errorMessage: error instanceof Error ? error.message : String(error),
+    errorName: error instanceof Error ? error.name : null,
+    hasStoredAuthToken: !!getAuthStorageValue(),
+  });
+  // #endregion
+  clearAuthStorage();
+  const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
+  // #region debug-point E:recover:done
+  reportAuthDebug('E', 'authStore:recoverBrokenAuthState:done', '[DEBUG] auth recovery finished', {
+    reason,
+    signOutErrorMessage: signOutError?.message ?? null,
+    signOutErrorName: signOutError?.name ?? null,
+    hasStoredAuthToken: !!getAuthStorageValue(),
+  });
+  // #endregion
+};
 
 interface AuthState {
   user: UserProfile | null;
@@ -56,8 +134,26 @@ export const useAuthStore = create<AuthState>()(
       // 初始化认证状态
       initAuth: async () => {
         try {
-          const { data: { session }, error } = await supabase.auth.getSession();
+          // #region debug-point E:init-auth:start
+          reportAuthDebug('E', 'authStore:initAuth:start', '[DEBUG] initAuth start', {
+            hasStoredAuthToken: !!getAuthStorageValue(),
+          });
+          // #endregion
+          const { data: { session }, error } = await withAuthTimeout(
+            supabase.auth.getSession(),
+            AUTH_RECOVERY_TIMEOUT_MS,
+            'Auth recovery timeout: getSession stalled'
+          );
           
+          // #region debug-point E:init-auth:after-session
+          reportAuthDebug('E', 'authStore:initAuth:after-session', '[DEBUG] initAuth after getSession', {
+            hasSession: !!session,
+            sessionUserId: session?.user?.id ?? null,
+            errorMessage: error?.message ?? null,
+            errorName: error?.name ?? null,
+            errorStatus: (error as { status?: number } | null)?.status ?? null,
+          });
+          // #endregion
           if (error) throw error;
           
           if (session?.user) {
@@ -74,6 +170,13 @@ export const useAuthStore = create<AuthState>()(
           
           // 监听认证状态变化
           supabase.auth.onAuthStateChange(async (_event, session) => {
+            // #region debug-point E:init-auth:on-auth-change
+            reportAuthDebug('E', 'authStore:initAuth:onAuthStateChange', '[DEBUG] auth state changed', {
+              event: _event,
+              hasSession: !!session,
+              sessionUserId: session?.user?.id ?? null,
+            });
+            // #endregion
             if (session?.user) {
               const profile = await fetchProfileWithRetry(session.user.id);
                 
@@ -88,6 +191,17 @@ export const useAuthStore = create<AuthState>()(
             }
           });
         } catch (error) {
+          // #region debug-point E:init-auth:catch
+          reportAuthDebug('E', 'authStore:initAuth:catch', '[DEBUG] initAuth failed', {
+            errorMessage: error instanceof Error ? error.message : String(error),
+            errorName: error instanceof Error ? error.name : null,
+          });
+          // #endregion
+          if (isRecoverableAuthError(error)) {
+            await recoverBrokenAuthState('initAuth', error);
+            set({ user: null, isAuthenticated: false, isLoading: false });
+            return;
+          }
           console.error('Auth init error:', error);
           set({ isLoading: false });
         }
@@ -96,20 +210,48 @@ export const useAuthStore = create<AuthState>()(
       // 邮箱登录
       loginWithEmail: async (email: string, password: string) => {
         try {
+          // #region debug-point E:login:start
+          reportAuthDebug('E', 'authStore:loginWithEmail:start', '[DEBUG] loginWithEmail start', {
+            emailDomain: email.includes('@') ? email.split('@')[1] : null,
+            passwordLength: password.length,
+          });
+          // #endregion
           const { error } = await supabase.auth.signInWithPassword({
             email,
             password,
           });
           
+          // #region debug-point E:login:after-signin
+          reportAuthDebug('E', 'authStore:loginWithEmail:afterSignIn', '[DEBUG] loginWithEmail after signIn', {
+            errorMessage: error?.message ?? null,
+            errorName: error?.name ?? null,
+            errorStatus: (error as { status?: number } | null)?.status ?? null,
+          });
+          // #endregion
           if (error) throw error;
 
           const { data: { session } } = await supabase.auth.getSession();
+          // #region debug-point E:login:after-session
+          reportAuthDebug('E', 'authStore:loginWithEmail:afterSession', '[DEBUG] loginWithEmail after getSession', {
+            hasSession: !!session,
+            sessionUserId: session?.user?.id ?? null,
+          });
+          // #endregion
           if (session?.user) {
             const profile = await fetchProfileWithRetry(session.user.id);
             set({ user: profile, isAuthenticated: true });
           }
           return { error: null };
         } catch (error) {
+          // #region debug-point E:login:catch
+          reportAuthDebug('E', 'authStore:loginWithEmail:catch', '[DEBUG] loginWithEmail failed', {
+            errorMessage: error instanceof Error ? error.message : String(error),
+            errorName: error instanceof Error ? error.name : null,
+          });
+          // #endregion
+          if (isRecoverableAuthError(error)) {
+            await recoverBrokenAuthState('loginWithEmail', error);
+          }
           return { error: error as Error };
         }
       },
@@ -126,6 +268,16 @@ export const useAuthStore = create<AuthState>()(
             }
           });
           
+          // #region debug-point C:register:after-signup
+          reportAuthDebug('C', 'authStore:registerWithEmail:afterSignUp', '[DEBUG] registerWithEmail after signUp', {
+            emailDomain: email.includes('@') ? email.split('@')[1] : null,
+            hasSession: !!data.session,
+            hasUser: !!data.user,
+            errorMessage: error?.message ?? null,
+            errorName: error?.name ?? null,
+            redirectTo: getAppPublicUrl(),
+          });
+          // #endregion
           if (error) throw error;
           
           const needsEmailConfirmation = !data.session;
@@ -156,6 +308,16 @@ export const useAuthStore = create<AuthState>()(
           
           return { error: null, needsEmailConfirmation };
         } catch (error) {
+          // #region debug-point C:register:catch
+          reportAuthDebug('C', 'authStore:registerWithEmail:catch', '[DEBUG] registerWithEmail failed', {
+            errorMessage: error instanceof Error ? error.message : String(error),
+            errorName: error instanceof Error ? error.name : null,
+            redirectTo: getAppPublicUrl(),
+          });
+          // #endregion
+          if (isRecoverableAuthError(error)) {
+            await recoverBrokenAuthState('registerWithEmail', error);
+          }
           return { error: error as Error };
         }
       },
@@ -174,6 +336,12 @@ export const useAuthStore = create<AuthState>()(
 
       // 登出
       logout: async () => {
+        // #region debug-point E:logout:start
+        reportAuthDebug('E', 'authStore:logout:start', '[DEBUG] logout start', {
+          isAuthenticated: get().isAuthenticated,
+          userId: get().user?.id ?? null,
+        });
+        // #endregion
         await supabase.auth.signOut();
         set({
           user: null,

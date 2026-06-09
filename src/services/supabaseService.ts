@@ -1,4 +1,6 @@
+import { createClient } from '@supabase/supabase-js';
 import { supabase as supabaseClient } from '../lib/supabase';
+import { env } from '../config/env';
 import type {
   UserProfile,
   UserCheckin,
@@ -12,6 +14,13 @@ import type {
 import type { Database } from '../types/supabase';
 
 const supabase = supabaseClient;
+const publicSupabase = createClient<Database>(env.supabaseUrl, env.supabaseAnonKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+    detectSessionInUrl: false,
+  },
+});
 
 const formatSupabaseError = (error: unknown, fallbackMessage: string) => {
   if (error instanceof Error) return error;
@@ -127,7 +136,7 @@ const ATTRACTIONS_LIST_SELECT =
  * 获取所有景区
  */
 export const getAttractions = async (): Promise<Attraction[]> => {
-  const { data, error } = await supabase
+  const { data, error } = await publicSupabase
     .from('attractions')
     .select(ATTRACTIONS_LIST_SELECT)
     .order('name');
@@ -140,7 +149,7 @@ export const getAttractions = async (): Promise<Attraction[]> => {
  * 按省份筛选景区
  */
 export const getAttractionsByProvince = async (province: string): Promise<Attraction[]> => {
-  const { data, error } = await supabase
+  const { data, error } = await publicSupabase
     .from('attractions')
     .select(ATTRACTIONS_LIST_SELECT)
     .eq('province', province)
@@ -154,7 +163,7 @@ export const getAttractionsByProvince = async (province: string): Promise<Attrac
  * 获取景区详情
  */
 export const getAttractionsById = async (id: string): Promise<Attraction> => {
-  const { data, error } = await supabase
+  const { data, error } = await publicSupabase
     .from('attractions')
     .select('id,name,province,city,address,latitude,longitude,image_url,ticket_price,open_time,tips')
     .eq('id', id)
@@ -168,7 +177,7 @@ export const getAttractionsById = async (id: string): Promise<Attraction> => {
  * 后端模糊检索景区
  */
 export const searchAttractions = async (keyword?: string, filterIds?: string[], province?: string): Promise<Attraction[]> => {
-  let query = supabase.from('attractions').select(ATTRACTIONS_LIST_SELECT);
+  let query = publicSupabase.from('attractions').select(ATTRACTIONS_LIST_SELECT);
 
   if (keyword) {
     // 模糊匹配名称、城市、省份
@@ -203,7 +212,7 @@ export const searchAttractions = async (keyword?: string, filterIds?: string[], 
  * 获取景区总数
  */
 export const getTotalAttractionsCount = async (): Promise<number> => {
-  const { count, error } = await supabase
+  const { count, error } = await publicSupabase
     .from('attractions')
     .select('id', { count: 'exact', head: true });
     

@@ -7,6 +7,21 @@ import { getLocalCache, setLocalCache } from '../utils/localCache';
 const RECOMMENDED_CACHE_KEY = 'attractions:recommended:v2';
 const RECOMMENDED_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const SEARCH_TIMEOUT_MS = 4000;
+const reportAttractionDebug = (hypothesisId: string, location: string, msg: string, data: Record<string, unknown>) => {
+  fetch('http://127.0.0.1:7777/event', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sessionId: 'prod-supabase-auth',
+      runId: 'pre-fix',
+      hypothesisId,
+      location,
+      msg,
+      data,
+      ts: Date.now(),
+    }),
+  }).catch(() => {});
+};
 
 const getFallbackAttractions = (keyword: string, filterIds?: string[], province?: string) => {
   const normalizedKeyword = keyword.trim().toLowerCase();
@@ -37,6 +52,8 @@ const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number): Promise<
     if (timeoutId) clearTimeout(timeoutId);
   }
 };
+
+const isTimeoutError = (error: Error) => error.message.includes('景区数据请求超时');
 
 export function useAttractionSearch(keyword: string, filterIds?: string[], province?: string) {
   const [data, setData] = useState<Attraction[]>([]);
@@ -77,8 +94,23 @@ export function useAttractionSearch(keyword: string, filterIds?: string[], provi
     setError(null);
 
     try {
+      // #region debug-point D:search:start
+      reportAttractionDebug('D', 'useAttractionSearch:runSearch:start', '[DEBUG] attraction search start', {
+        keyword,
+        filterIdsCount: filterIds?.length ?? null,
+        province: province ?? null,
+        isRecommendedMode,
+      });
+      // #endregion
       const result = await withTimeout(searchAttractions(keyword, filterIds, province), SEARCH_TIMEOUT_MS);
       if (seq === requestSeqRef.current) {
+        // #region debug-point D:search:success
+        reportAttractionDebug('D', 'useAttractionSearch:runSearch:success', '[DEBUG] attraction search success', {
+          resultCount: result.length,
+          keyword,
+          province: province ?? null,
+        });
+        // #endregion
         setData(result);
         if (isRecommendedMode) {
           setFromCache(false);
@@ -88,6 +120,50 @@ export function useAttractionSearch(keyword: string, filterIds?: string[], provi
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
       if (seq === requestSeqRef.current) {
+        if (isTimeoutError(err)) {
+          try {
+            // #region debug-point D:search:retry
+            reportAttractionDebug('D', 'useAttractionSearch:runSearch:retry', '[DEBUG] attraction search retry after timeout', {
+              keyword,
+              filterIdsCount: filterIds?.length ?? null,
+              province: province ?? null,
+            });
+            // #endregion
+            await new Promise((resolve) => setTimeout(resolve, 400));
+            const retried = await withTimeout(searchAttractions(keyword, filterIds, province), SEARCH_TIMEOUT_MS);
+            setData(retried);
+            setError(null);
+            setFromCache(false);
+            // #region debug-point D:search:retry-success
+            reportAttractionDebug('D', 'useAttractionSearch:runSearch:retrySuccess', '[DEBUG] attraction search retry success', {
+              resultCount: retried.length,
+              keyword,
+              province: province ?? null,
+            });
+            // #endregion
+            return;
+          } catch (retryError) {
+            const retryErr = retryError instanceof Error ? retryError : new Error(String(retryError));
+            // #region debug-point D:search:retry-failed
+            reportAttractionDebug('D', 'useAttractionSearch:runSearch:retryFailed', '[DEBUG] attraction search retry failed', {
+              errorMessage: retryErr.message,
+              errorName: retryErr.name,
+              keyword,
+              province: province ?? null,
+            });
+            // #endregion
+          }
+        }
+        // #region debug-point D:search:catch
+        reportAttractionDebug('D', 'useAttractionSearch:runSearch:catch', '[DEBUG] attraction search fallback', {
+          errorMessage: err.message,
+          errorName: err.name,
+          keyword,
+          filterIdsCount: filterIds?.length ?? null,
+          province: province ?? null,
+          fallbackCount: getFallbackAttractions(keyword, filterIds, province).length,
+        });
+        // #endregion
         setError(err);
         const fallback = getFallbackAttractions(keyword, filterIds, province);
         setData(fallback);
