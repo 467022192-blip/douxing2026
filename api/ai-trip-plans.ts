@@ -35,6 +35,14 @@ type OpenAiResponse = {
   }>;
 };
 
+type AttractionCache = {
+  data: AttractionRow[];
+  expiresAt: number;
+};
+
+const ATTRACTION_CACHE_TTL_MS = 10 * 60 * 1000;
+let attractionCache: AttractionCache | null = null;
+
 const normalizeName = (value: string) =>
   value
     .trim()
@@ -60,6 +68,7 @@ const buildPrompt = (query: string) => `
 6. 只推荐景点，不要输出酒店、餐厅、购物、注意事项。
 7. 风格要有差异，例如“轻松亲子”“经典海边”“自然风景”。
 8. 用户没有明确城市时可以合理假设，但不要编造过度细节。
+9. title 保持简洁，reason 控制在一两句话内。
 
 JSON 示例：
 {
@@ -95,6 +104,36 @@ const parseContent = (content: string): { options: LlmOption[] } => {
     throw new Error('模型返回的方案数量不足 3 个');
   }
   return { options: parsed.options.slice(0, 3) };
+};
+
+const getAttractionsForMatching = async (supabaseUrl: string, supabaseAnonKey: string) => {
+  const now = Date.now();
+  if (attractionCache && attractionCache.expiresAt > now) {
+    return {
+      data: attractionCache.data,
+      cacheHit: true
+    };
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const { data, error } = await supabase
+    .from('attractions')
+    .select('id,name,province,city,address')
+    .limit(3000);
+
+  if (error) {
+    throw new Error(`景区数据读取失败：${error.message}`);
+  }
+
+  attractionCache = {
+    data: (data || []) as AttractionRow[],
+    expiresAt: now + ATTRACTION_CACHE_TTL_MS
+  };
+
+  return {
+    data: attractionCache.data,
+    cacheHit: false
+  };
 };
 
 const scoreAttractionMatch = (item: LlmAttraction, attraction: AttractionRow) => {
@@ -177,6 +216,8 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    const totalStart = Date.now();
+    const modelStart = Date.now();
     const llmResponse = await fetch(`${openAiBaseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -185,8 +226,8 @@ export default async function handler(req: any, res: any) {
       },
       body: JSON.stringify({
         model: modelName,
-        temperature: 0.8,
-        max_tokens: 2200,
+        temperature: 0.7,
+        max_tokens: 1800,
         messages: [
           {
             role: 'system',
@@ -211,16 +252,9 @@ export default async function handler(req: any, res: any) {
       return json(res, 502, { error: 'AI 服务未返回有效内容。' });
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
-    const { data: attractions, error: attractionsError } = await supabase
-      .from('attractions')
-      .select('id,name,province,city,address')
-      .limit(3000);
-
-    if (attractionsError) {
-      return json(res, 502, { error: `景区数据读取失败：${attractionsError.message}` });
-    }
-
+    const modelMs = Date.now() - modelStart;
+    const matchStart = Date.now();
+    const attractionData = await getAttractionsForMatching(supabaseUrl, supabaseAnonKey);
     const parsed = parseContent(content);
 
     const options = parsed.options.map((option, optionIndex) => ({
@@ -240,7 +274,7 @@ export default async function handler(req: any, res: any) {
                   summary: item.summary?.trim() || '',
                   city: item.city?.trim() || '',
                   province: item.province?.trim() || '',
-                  ...matchAttraction(item, (attractions || []) as AttractionRow[])
+                  ...matchAttraction(item, attractionData.data)
                 }))
             }))
         : []
@@ -250,10 +284,27 @@ export default async function handler(req: any, res: any) {
       return json(res, 502, { error: 'AI 返回的行程结构不完整，请重试一次。' });
     }
 
+    const matchMs = Date.now() - matchStart;
+    const totalMs = Date.now() - totalStart;
+
+    console.info('[guide-ai-trip-plans]', {
+      totalMs,
+      modelMs,
+      matchMs,
+      cacheHit: attractionData.cacheHit
+    });
+
     return json(res, 200, {
       options,
       provider: 'volcengine-ark',
-      generatedAt: new Date().toISOString()
+      generatedAt: new Date().toISOString(),
+      meta: {
+        totalMs,
+        modelMs,
+        matchMs,
+        cacheHit: attractionData.cacheHit,
+        retried: false
+      }
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'AI 行程规划失败';
