@@ -207,6 +207,33 @@ export interface Database {
         };
         Relationships: [];
       };
+      ai_trip_plans: {
+        Row: {
+          id: string;
+          user_id: string;
+          input_query: string;
+          result_json: Json;
+          created_at: string | null;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          input_query: string;
+          result_json: Json;
+          created_at?: string | null;
+          updated_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          input_query?: string;
+          result_json?: Json;
+          created_at?: string | null;
+          updated_at?: string | null;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;

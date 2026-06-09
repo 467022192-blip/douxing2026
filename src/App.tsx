@@ -8,6 +8,7 @@ import { env } from './config/env';
 
 // Code Splitting with React.lazy
 const Home = lazy(() => import('./pages/Home/index'));
+const AITripPlanner = lazy(() => import('./pages/AITripPlanner/index'));
 const Footprint = lazy(() => import('./pages/Footprint'));
 const RoutePlanning = lazy(() => import('./pages/RoutePlanning'));
 const AttractionDetail = lazy(() => import('./pages/AttractionDetail/index'));
@@ -71,6 +72,7 @@ function AppRoutes() {
       <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/ai-trip-planner" element={<AITripPlanner />} />
           <Route path="/footprint" element={<Footprint />} />
           <Route path="/route-planning" element={<RoutePlanning />} />
           <Route path="/attraction/:id" element={<AttractionDetail />} />

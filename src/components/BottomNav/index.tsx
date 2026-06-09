@@ -1,9 +1,10 @@
-import { Home, MapPin, MessageCircle, User } from 'lucide-react';
+import { Home, MapPin, MessageCircle, Sparkles, User } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { preloadBaiduMapIdle } from '../../utils/baiduMap';
 
 const navItems = [
   { path: '/', label: '首页', icon: Home },
+  { path: '/ai-trip-planner', label: 'AI规划', icon: Sparkles },
   { path: '/footprint', label: '行程', icon: MapPin },
   { path: '/space', label: '动态', icon: MessageCircle },
   { path: '/profile', label: '我的', icon: User },

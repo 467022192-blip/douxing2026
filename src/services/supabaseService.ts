@@ -1,5 +1,5 @@
 import { supabase as supabaseClient } from '../lib/supabase';
-import type { UserProfile, UserCheckin, Post, Comment, Attraction } from '../types';
+import type { UserProfile, UserCheckin, Post, Comment, Attraction, SavedAiTripPlan, TripPlanResult } from '../types';
 import type { Database } from '../types/supabase';
 
 const supabase = supabaseClient;
@@ -23,6 +23,13 @@ const formatSupabaseError = (error: unknown, fallbackMessage: string) => {
 
   return new Error(fallbackMessage);
 };
+
+const toSavedAiTripPlan = (
+  row: Database['public']['Tables']['ai_trip_plans']['Row']
+): SavedAiTripPlan => ({
+  ...row,
+  result_json: row.result_json as unknown as TripPlanResult
+});
 
 // ==================== 用户相关 ====================
 
@@ -188,6 +195,42 @@ export const getTotalAttractionsCount = async (): Promise<number> => {
     return 0;
   }
   return count || 0;
+};
+
+// ==================== AI 行程规划相关 ====================
+
+export const createAiTripPlan = async (
+  userId: string,
+  inputQuery: string,
+  result: TripPlanResult
+): Promise<SavedAiTripPlan> => {
+  const insertData: Database['public']['Tables']['ai_trip_plans']['Insert'] = {
+    user_id: userId,
+    input_query: inputQuery,
+    result_json: result as unknown as Database['public']['Tables']['ai_trip_plans']['Insert']['result_json'],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+
+  const { data, error } = await supabase
+    .from('ai_trip_plans')
+    .insert(insertData)
+    .select('*')
+    .single();
+
+  if (error) throw formatSupabaseError(error, '保存 AI 行程规划失败');
+  return toSavedAiTripPlan(data);
+};
+
+export const getAiTripPlansByUser = async (userId: string): Promise<SavedAiTripPlan[]> => {
+  const { data, error } = await supabase
+    .from('ai_trip_plans')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw formatSupabaseError(error, '获取 AI 行程规划历史失败');
+  return (data || []).map((item) => toSavedAiTripPlan(item));
 };
 
 

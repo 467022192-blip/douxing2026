@@ -84,3 +84,45 @@ export interface Province {
   name: string;
   code: string;
 }
+
+export interface TripPlannerRequest {
+  query: string;
+}
+
+export interface TripPlanAttractionItem {
+  name: string;
+  summary?: string;
+  city?: string;
+  province?: string;
+  matchedAttractionId?: string;
+  matchedAttractionName?: string;
+  matchedScore?: number;
+}
+
+export interface TripPlanDay {
+  day: number;
+  title: string;
+  attractions: TripPlanAttractionItem[];
+}
+
+export interface TripPlanOption {
+  id: string;
+  title: string;
+  reason: string;
+  days: TripPlanDay[];
+}
+
+export interface TripPlanResult {
+  options: TripPlanOption[];
+  provider?: string;
+  generatedAt?: string;
+}
+
+export interface SavedAiTripPlan {
+  id: string;
+  user_id: string;
+  input_query: string;
+  result_json: TripPlanResult;
+  created_at?: string;
+  updated_at?: string;
+}
