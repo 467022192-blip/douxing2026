@@ -130,20 +130,23 @@ export default function Profile() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
+    <div className="relative min-h-screen overflow-hidden bg-[linear-gradient(180deg,#f4f7fb_0%,#f7fafc_56%,#f9fafb_100%)] pb-20">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[320px] bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.28),rgba(45,212,191,0.18)_36%,rgba(59,130,246,0.08)_52%,rgba(249,250,251,0)_74%)]" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[240px] bg-gradient-to-b from-emerald-100/95 via-teal-100/65 to-transparent" />
+
       {/* 头部背景 */}
-      <div className="bg-gradient-to-br from-emerald-500 to-teal-600 px-4 pt-12 pb-8">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-lg font-semibold text-white">我的</h1>
-          <button className="p-2 text-white/80 hover:text-white">
+      <div className="relative px-4 pb-5 pt-12">
+        <div className="mb-5 flex items-center justify-between">
+          <h1 className="text-lg font-semibold text-gray-800">我的</h1>
+          <button className="p-2 text-gray-500 hover:text-gray-700">
             <Settings size={20} />
           </button>
         </div>
 
         {/* 用户信息 */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 rounded-[28px] bg-white px-4 py-5 shadow-sm ring-1 ring-emerald-100/70">
           <div className="relative">
-            <div className="w-20 h-20 rounded-full bg-white/20 border-4 border-white/30 overflow-hidden">
+            <div className="w-20 h-20 overflow-hidden rounded-full bg-emerald-50 ring-4 ring-emerald-100/70">
               {user?.avatar_url ? (
                 <img
                   src={user.avatar_url}
@@ -151,7 +154,7 @@ export default function Profile() {
                   className="w-full h-full object-cover"
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-white">
+                <div className="flex h-full w-full items-center justify-center text-emerald-600">
                   <User size={40} />
                 </div>
               )}
@@ -159,7 +162,7 @@ export default function Profile() {
             {isAuthenticated && (
               <button
                 onClick={() => setIsEditing(true)}
-                className="absolute -bottom-1 -right-1 w-7 h-7 bg-white rounded-full shadow-md flex items-center justify-center text-emerald-600"
+                className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-white text-emerald-600 shadow-md ring-1 ring-emerald-100"
               >
                 <Edit3 size={14} />
               </button>
@@ -173,34 +176,34 @@ export default function Profile() {
                   value={editNickname}
                   onChange={(e) => setEditNickname(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && saveNickname()}
-                  className="px-3 py-1.5 rounded-lg text-gray-800 text-lg font-bold w-40 focus:outline-none focus:ring-2 focus:ring-white/50"
+                  className="w-40 rounded-lg bg-gray-50 px-3 py-1.5 text-lg font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-emerald-200"
                   placeholder="输入昵称"
                   autoFocus
                 />
                 <button
                   onClick={saveNickname}
-                  className="px-3 py-1.5 bg-white/20 text-white rounded-lg text-sm"
+                  className="rounded-lg bg-emerald-500 px-3 py-1.5 text-sm text-white"
                 >
                   保存
                 </button>
               </div>
             ) : (
               <>
-                <h2 className="text-xl font-bold text-white">
+                <h2 className="text-xl font-bold text-gray-900">
                   {isAuthenticated ? user?.nickname || '游客' : '未登录'}
                 </h2>
-                <p className="text-white/70 text-sm mt-1">
+                <p className="mt-1 text-sm text-gray-500">
                   {isAuthenticated ? '记录你的旅行行程' : '登录后解锁更多功能'}
                 </p>
               </>
             )}
             {isAuthenticated && (
-              <div className="flex items-center gap-2 mt-2">
-                <span className="px-2 py-0.5 bg-white/20 rounded-full text-xs text-white flex items-center gap-1">
+              <div className="mt-2 flex items-center gap-2">
+                <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
                   <Award size={12} />
                   Lv.{Math.min(Math.floor(stats.visited / 5) + 1, 10)}
                 </span>
-                <span className="text-xs text-white/60">
+                <span className="text-xs text-gray-400">
                    joined {user?.created_at ? new Date(user.created_at).getFullYear() : '2024'}
                 </span>
               </div>
@@ -210,7 +213,7 @@ export default function Profile() {
       </div>
 
       {/* 统计卡片 */}
-      <div className="mx-4 -mt-4 bg-white rounded-xl shadow-sm p-4">
+      <div className="mx-4 -mt-4 rounded-2xl bg-white/92 p-4 shadow-sm ring-1 ring-emerald-100/70 backdrop-blur-sm">
         <div className="grid grid-cols-4 gap-4">
           <div className="text-center">
             <div className="text-2xl font-bold text-emerald-600">{stats.visited}</div>
@@ -233,7 +236,7 @@ export default function Profile() {
 
       {/* 打卡进度 */}
       {isAuthenticated && (
-        <div className="mx-4 mt-4 bg-white rounded-xl shadow-sm p-4">
+        <div className="mx-4 mt-4 rounded-2xl bg-white/92 p-4 shadow-sm ring-1 ring-emerald-100/70">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <TrendingUp size={18} className="text-emerald-500" />
@@ -257,7 +260,7 @@ export default function Profile() {
 
       {/* 最近打卡 */}
       {recentCheckins.length > 0 && (
-        <div className="mx-4 mt-4 bg-white rounded-xl shadow-sm p-4">
+        <div className="mx-4 mt-4 rounded-2xl bg-white/92 p-4 shadow-sm ring-1 ring-emerald-100/70">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Calendar size={18} className="text-emerald-500" />
@@ -271,7 +274,7 @@ export default function Profile() {
             {recentCheckins.map((attraction, index) => (
               <div
                 key={attraction?.id || index}
-                className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg"
+                className="flex items-center gap-3 rounded-xl bg-emerald-50/45 p-2.5"
               >
                 <div className="w-12 h-12 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600">
                   <MapPin size={20} />
@@ -289,7 +292,7 @@ export default function Profile() {
       )}
 
       {/* 功能菜单 */}
-      <div className="mx-4 mt-4 bg-white rounded-xl shadow-sm overflow-hidden">
+      <div className="mx-4 mt-4 overflow-hidden rounded-2xl bg-white/92 shadow-sm ring-1 ring-emerald-100/70">
         {menuItems.map((item, index) => (
           <div
             key={item.label}
@@ -307,7 +310,7 @@ export default function Profile() {
             }`}
           >
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-gray-600">
+              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
                 <item.icon size={18} />
               </div>
               <div className="text-left">
@@ -324,7 +327,7 @@ export default function Profile() {
 
       {/* 开发者工具 - 仅在开发环境显示 */}
       {import.meta.env.DEV && (
-        <div className="mx-4 mt-4 bg-white rounded-xl shadow-sm overflow-hidden flex flex-col">
+        <div className="mx-4 mt-4 flex flex-col overflow-hidden rounded-2xl bg-white/92 shadow-sm ring-1 ring-emerald-100/70">
           <button
             onClick={() => loadMockData()}
             className="w-full px-4 py-4 flex items-center justify-between border-b border-gray-100"
@@ -363,7 +366,7 @@ export default function Profile() {
       )}
 
       {/* 关于 */}
-      <div className="mx-4 mt-4 bg-white rounded-xl shadow-sm overflow-hidden">
+      <div className="mx-4 mt-4 overflow-hidden rounded-2xl bg-white/92 shadow-sm ring-1 ring-emerald-100/70">
         <div className="px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600">
@@ -380,7 +383,7 @@ export default function Profile() {
         <div className="mx-4 mt-4">
           <button
             onClick={logout}
-            className="w-full py-3 bg-white rounded-xl shadow-sm text-red-500 font-medium flex items-center justify-center gap-2"
+            className="w-full flex items-center justify-center gap-2 rounded-2xl bg-white/92 py-3 font-medium text-red-500 shadow-sm ring-1 ring-red-100/70"
           >
             <LogOut size={18} />
             退出登录
@@ -393,7 +396,7 @@ export default function Profile() {
         <div className="mx-4 mt-4">
           <button
             onClick={() => navigate('/login')}
-            className="w-full py-3 bg-emerald-500 rounded-xl shadow-sm text-white font-medium"
+            className="w-full rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 py-3 font-medium text-white shadow-[0_12px_28px_rgba(16,185,129,0.2)]"
           >
             登录 / 注册
           </button>

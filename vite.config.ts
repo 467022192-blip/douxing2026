@@ -7,8 +7,18 @@ import { traeBadgePlugin } from 'vite-plugin-trae-solo-badge';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
   const showBadge = env.VITE_SHOW_TRAE_BADGE === 'true';
+  const devApiProxyTarget = env.VITE_DEV_API_PROXY_TARGET || 'https://douxing2026.vercel.app';
 
   return {
+    server: {
+      proxy: {
+        '/api': {
+          target: devApiProxyTarget,
+          changeOrigin: true,
+          secure: true
+        }
+      }
+    },
     build: {
       sourcemap: 'hidden',
       rollupOptions: {

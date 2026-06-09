@@ -84,3 +84,87 @@ export interface Province {
   name: string;
   code: string;
 }
+
+export interface TripPlannerRequest {
+  query: string;
+}
+
+export interface TripPlanAttractionItem {
+  name: string;
+  summary?: string;
+  city?: string;
+  province?: string;
+  matchedAttractionId?: string;
+  matchedAttractionName?: string;
+  matchedScore?: number;
+}
+
+export interface TripPlanDay {
+  day: number;
+  title: string;
+  attractions: TripPlanAttractionItem[];
+}
+
+export interface TripPlanOption {
+  id: string;
+  title: string;
+  reason: string;
+  days: TripPlanDay[];
+}
+
+export interface TripPlanMeta {
+  totalMs?: number;
+  modelMs?: number;
+  matchMs?: number;
+  cacheHit?: boolean;
+  retried?: boolean;
+}
+
+export interface TripPlanResult {
+  options: TripPlanOption[];
+  provider?: string;
+  generatedAt?: string;
+  meta?: TripPlanMeta;
+}
+
+export interface SavedAiTripPlan {
+  id: string;
+  user_id: string;
+  input_query: string;
+  result_json: TripPlanResult;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SavedAiTripPlanSummary {
+  id: string;
+  input_query: string;
+  created_at?: string;
+}
+
+export interface PublicPopularAiTripPlanSummary {
+  id: string;
+  title: string;
+  summary: string;
+  cover_prompt: string;
+  author_nickname: string;
+  created_at?: string;
+}
+
+export interface PublicPopularAiTripPlanDetail {
+  id: string;
+  input_query: string;
+  result_json: TripPlanResult;
+  cover_prompt: string;
+  author_nickname: string;
+  created_at?: string;
+}
+
+export interface ResolvedAiTripPlanDetail {
+  id: string;
+  input_query: string;
+  result_json: TripPlanResult;
+  created_at?: string;
+  source: 'private' | 'public';
+  source_label: string;
+}

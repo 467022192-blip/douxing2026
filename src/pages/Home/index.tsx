@@ -252,7 +252,7 @@ export default function Home() {
           <>
           {error && displayedAttractions.length > 0 && (
             <div className="mb-3 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100 text-xs text-amber-700">
-              网络不佳，已展示缓存数据
+              Supabase 数据暂时不可用，已展示本地景区数据；可检查网络、环境变量、RLS 或刷新令牌状态
             </div>
           )}
           {fromCache && (
@@ -262,10 +262,10 @@ export default function Home() {
           )}
           <AutoSizer
             renderProp={({ height, width }) => {
-              if (!height || !width) return null;
+              if (!width) return null;
 
               const bottomNavHeight = 64;
-              const listHeight = Math.max(0, height - bottomNavHeight);
+              const listHeight = Math.max(320, (height ?? 0) - bottomNavHeight);
 
               type RowProps = {
                 attractions: Attraction[];

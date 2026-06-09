@@ -19,6 +19,9 @@
 - `VITE_SENTRY_DSN`（开启前端错误监控）
 - `VITE_APP_PUBLIC_URL`（用于 Supabase 邮件跳转/回调的站点 URL）
 - `VITE_SHOW_TRAE_BADGE=true`（如需显示 Trae 角标）
+- `OPENAI_BASE_URL`（AI 行程规划服务端调用火山方舟的 OpenAI 兼容 Base URL）
+- `OPENAI_API_KEY`（仅服务端使用，不要暴露到浏览器）
+- `MODEL_NAME`（AI 行程规划使用的模型名）
 
 仓库已提供 `.env.example` 作为模板。
 
@@ -66,6 +69,16 @@
 1. 配置 `VITE_SENTRY_DSN`
 2. 重新构建部署
 
+## 5.1 AI 行程规划服务
+
+项目新增了 `/api/ai-trip-plans` 服务端接口，用于代理火山方舟模型调用并完成景点库匹配。
+
+注意：
+
+1. `OPENAI_API_KEY` 只应配置在部署平台服务端环境变量中
+2. 浏览器前端不要直接读取或注入 `OPENAI_API_KEY`
+3. 若未配置 AI 相关环境变量，AI 规划页应展示明确错误提示，而不是白屏
+
 ## 6. 构建包体优化
 
 项目已在 `vite.config.ts` 中配置 `manualChunks`，把 React、Router、Supabase、虚拟列表等拆为独立 chunk。
@@ -80,7 +93,7 @@
 2. Vercel → New Project → Import
 3. Framework 选择 Vite（项目已提供 `vercel.json`）
 
-建议在 Vercel Project → Settings → General 中将 Node.js 版本设置为 `20.x`。
+建议在 Vercel Project → Settings → General 中将 Node.js 版本设置为 `22.x`。
 
 ### 7.2 Vercel 环境变量
 
@@ -90,6 +103,9 @@
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_BAIDU_MAP_AK`
 - `VITE_APP_PUBLIC_URL`（建议填你的线上域名，如 `https://your-app.vercel.app` 或自定义域名）
+- `OPENAI_BASE_URL`
+- `OPENAI_API_KEY`
+- `MODEL_NAME`
 
 可选：
 
@@ -104,13 +120,14 @@
 
 推荐处理：
 
-1. 使用 Node `20.x`（本项目已添加 `.nvmrc` 与 `package.json#engines`）
+1. 使用 Node `22.x`（本项目已添加 `.nvmrc` 与 `package.json#engines`）
 2. 确保使用 `npm ci` 安装依赖（本项目已在 `vercel.json` 设置 `installCommand`）
 3. 在 Vercel 重新部署前点击一次 "Clear build cache"
 
 ### 7.3 Supabase 侧配置
 
 1. 执行 RLS：`supabase/rls_policies.sql`
-2. Authentication → URL Configuration
+2. 如启用 AI 规划历史，额外执行：`supabase/ai_trip_plans.sql`
+3. Authentication → URL Configuration
    - Site URL：填 `VITE_APP_PUBLIC_URL`
    - Redirect URLs：至少包含 `VITE_APP_PUBLIC_URL/*`

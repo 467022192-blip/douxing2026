@@ -1,8 +1,52 @@
 import { supabase as supabaseClient } from '../lib/supabase';
-import type { UserProfile, UserCheckin, Post, Comment, Attraction } from '../types';
+import type {
+  UserProfile,
+  UserCheckin,
+  Post,
+  Comment,
+  Attraction,
+  SavedAiTripPlan,
+  SavedAiTripPlanSummary,
+  TripPlanResult
+} from '../types';
 import type { Database } from '../types/supabase';
 
 const supabase = supabaseClient;
+
+const formatSupabaseError = (error: unknown, fallbackMessage: string) => {
+  if (error instanceof Error) return error;
+
+  if (error && typeof error === 'object') {
+    const supabaseError = error as Partial<{
+      message: string;
+      details: string;
+      hint: string;
+      code: string;
+    }>;
+    const message = [supabaseError.message, supabaseError.details, supabaseError.hint, supabaseError.code]
+      .filter(Boolean)
+      .join(' | ');
+
+    if (message) return new Error(message);
+  }
+
+  return new Error(fallbackMessage);
+};
+
+const toSavedAiTripPlan = (
+  row: Database['public']['Tables']['ai_trip_plans']['Row']
+): SavedAiTripPlan => ({
+  ...row,
+  result_json: row.result_json as unknown as TripPlanResult
+});
+
+const toSavedAiTripPlanSummary = (
+  row: Pick<Database['public']['Tables']['ai_trip_plans']['Row'], 'id' | 'input_query' | 'created_at'>
+): SavedAiTripPlanSummary => ({
+  id: row.id,
+  input_query: row.input_query,
+  created_at: row.created_at
+});
 
 // ==================== 用户相关 ====================
 
@@ -147,8 +191,9 @@ export const searchAttractions = async (keyword?: string, filterIds?: string[], 
   const { data, error } = await query.limit(3000);
 
   if (error) {
-    console.error('搜索景区失败:', error);
-    throw error;
+    const formattedError = formatSupabaseError(error, '搜索景区失败，请检查 Supabase 连接或 RLS 配置');
+    console.error('搜索景区失败:', formattedError.message);
+    throw formattedError;
   }
   
   return data as Attraction[];
@@ -167,6 +212,68 @@ export const getTotalAttractionsCount = async (): Promise<number> => {
     return 0;
   }
   return count || 0;
+};
+
+// ==================== AI 行程规划相关 ====================
+
+export const createAiTripPlan = async (
+  userId: string,
+  inputQuery: string,
+  result: TripPlanResult
+): Promise<SavedAiTripPlan> => {
+  const insertData: Database['public']['Tables']['ai_trip_plans']['Insert'] = {
+    user_id: userId,
+    input_query: inputQuery,
+    result_json: result as unknown as Database['public']['Tables']['ai_trip_plans']['Insert']['result_json'],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+
+  const { data, error } = await supabase
+    .from('ai_trip_plans')
+    .insert(insertData)
+    .select('*')
+    .single();
+
+  if (error) throw formatSupabaseError(error, '保存 AI 行程规划失败');
+  return toSavedAiTripPlan(data);
+};
+
+export const getAiTripPlansByUser = async (userId: string): Promise<SavedAiTripPlan[]> => {
+  const { data, error } = await supabase
+    .from('ai_trip_plans')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw formatSupabaseError(error, '获取 AI 行程规划历史失败');
+  return (data || []).map((item) => toSavedAiTripPlan(item));
+};
+
+export const getAiTripPlanSummariesByUser = async (
+  userId: string,
+  limit = 20
+): Promise<SavedAiTripPlanSummary[]> => {
+  const { data, error } = await supabase
+    .from('ai_trip_plans')
+    .select('id,input_query,created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw formatSupabaseError(error, '获取攻略摘要列表失败');
+  return (data || []).map((item) => toSavedAiTripPlanSummary(item));
+};
+
+export const getAiTripPlanById = async (id: string): Promise<SavedAiTripPlan> => {
+  const { data, error } = await supabase
+    .from('ai_trip_plans')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error) throw formatSupabaseError(error, '获取攻略详情失败');
+  return toSavedAiTripPlan(data);
 };
 
 

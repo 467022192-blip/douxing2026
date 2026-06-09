@@ -1,10 +1,42 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { searchAttractions } from '../services/supabaseService';
 import type { Attraction } from '../types';
+import { MOCK_ATTRACTIONS } from '../data/mockAttractions';
 import { getLocalCache, setLocalCache } from '../utils/localCache';
 
 const RECOMMENDED_CACHE_KEY = 'attractions:recommended:v2';
 const RECOMMENDED_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const SEARCH_TIMEOUT_MS = 4000;
+
+const getFallbackAttractions = (keyword: string, filterIds?: string[], province?: string) => {
+  const normalizedKeyword = keyword.trim().toLowerCase();
+  const normalizedProvince = province && province !== '全部' ? province : '';
+
+  return MOCK_ATTRACTIONS.filter((attraction) => {
+    if (filterIds && !filterIds.includes(attraction.id)) return false;
+    if (normalizedProvince && !attraction.province.startsWith(normalizedProvince)) return false;
+    if (!normalizedKeyword) return true;
+
+    return [attraction.name, attraction.city, attraction.province, attraction.address]
+      .filter(Boolean)
+      .some((value) => value!.toLowerCase().includes(normalizedKeyword));
+  });
+};
+
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error('景区数据请求超时，请检查 Supabase 网络、项目域名或 RLS 配置'));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+};
 
 export function useAttractionSearch(keyword: string, filterIds?: string[], province?: string) {
   const [data, setData] = useState<Attraction[]>([]);
@@ -45,7 +77,7 @@ export function useAttractionSearch(keyword: string, filterIds?: string[], provi
     setError(null);
 
     try {
-      const result = await searchAttractions(keyword, filterIds, province);
+      const result = await withTimeout(searchAttractions(keyword, filterIds, province), SEARCH_TIMEOUT_MS);
       if (seq === requestSeqRef.current) {
         setData(result);
         if (isRecommendedMode) {
@@ -57,6 +89,9 @@ export function useAttractionSearch(keyword: string, filterIds?: string[], provi
       const err = e instanceof Error ? e : new Error(String(e));
       if (seq === requestSeqRef.current) {
         setError(err);
+        const fallback = getFallbackAttractions(keyword, filterIds, province);
+        setData(fallback);
+        setFromCache(false);
       }
       console.error(err);
     } finally {

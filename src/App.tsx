@@ -8,6 +8,9 @@ import { env } from './config/env';
 
 // Code Splitting with React.lazy
 const Home = lazy(() => import('./pages/Home/index'));
+const AITripPlanner = lazy(() => import('./pages/AITripPlanner/index'));
+const GuideHistoryPage = lazy(() => import('./pages/AITripPlanner/GuideHistoryPage'));
+const GuideHistoryDetailPage = lazy(() => import('./pages/AITripPlanner/GuideHistoryDetailPage'));
 const Footprint = lazy(() => import('./pages/Footprint'));
 const RoutePlanning = lazy(() => import('./pages/RoutePlanning'));
 const AttractionDetail = lazy(() => import('./pages/AttractionDetail/index'));
@@ -64,13 +67,20 @@ function AppRoutes() {
   }, [isAuthenticated, user, loadCheckins, clearData]);
 
   // 判断是否隐藏底部导航
-  const hideBottomNav = location.pathname === '/route-planning' || location.pathname.startsWith('/attraction/');
+  const hideBottomNav =
+    location.pathname === '/route-planning' ||
+    location.pathname.startsWith('/attraction/') ||
+    location.pathname === '/ai-trip-planner/history' ||
+    location.pathname.startsWith('/ai-trip-planner/history/');
 
   return (
     <div className="max-w-md mx-auto bg-gray-50 min-h-screen">
       <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/ai-trip-planner" element={<AITripPlanner />} />
+          <Route path="/ai-trip-planner/history" element={<GuideHistoryPage />} />
+          <Route path="/ai-trip-planner/history/:id" element={<GuideHistoryDetailPage />} />
           <Route path="/footprint" element={<Footprint />} />
           <Route path="/route-planning" element={<RoutePlanning />} />
           <Route path="/attraction/:id" element={<AttractionDetail />} />
