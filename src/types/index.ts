@@ -112,10 +112,19 @@ export interface TripPlanOption {
   days: TripPlanDay[];
 }
 
+export interface TripPlanMeta {
+  totalMs?: number;
+  modelMs?: number;
+  matchMs?: number;
+  cacheHit?: boolean;
+  retried?: boolean;
+}
+
 export interface TripPlanResult {
   options: TripPlanOption[];
   provider?: string;
   generatedAt?: string;
+  meta?: TripPlanMeta;
 }
 
 export interface SavedAiTripPlan {

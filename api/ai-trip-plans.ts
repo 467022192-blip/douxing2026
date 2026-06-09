@@ -35,6 +35,14 @@ type OpenAiResponse = {
   }>;
 };
 
+type AttractionCache = {
+  data: AttractionRow[];
+  expiresAt: number;
+};
+
+const ATTRACTION_CACHE_TTL_MS = 10 * 60 * 1000;
+let attractionCache: AttractionCache | null = null;
+
 const normalizeName = (value: string) =>
   value
     .trim()
@@ -48,42 +56,21 @@ const normalizeResponseText = (text: string) => {
   return trimmed.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
 };
 
-const buildPrompt = (query: string) => `
-你是一个中文旅行规划助手。请根据用户需求输出 3 个不同风格的景点行程方案。
+const buildPrompt = (query: string, isRetry = false) => `
+你是中文旅行攻略助手。根据用户需求输出 3 套不同风格的景点攻略，只返回 JSON。
+
+固定格式：
+{"options":[{"title":"","reason":"","days":[{"day":1,"title":"","attractions":[{"name":"","summary":"","city":"","province":""}]}]}]}
 
 要求：
-1. 只输出 JSON，不要输出任何额外说明。
-2. 必须返回 3 个方案，字段名固定为 options。
-3. 每个方案必须包含 title、reason、days。
-4. days 必须是数组；每一项包含 day、title、attractions。
-5. attractions 必须是数组；每项包含 name、summary，可选 city、province。
-6. 只推荐景点，不要输出酒店、餐厅、购物、注意事项。
-7. 风格要有差异，例如“轻松亲子”“经典海边”“自然风景”。
-8. 用户没有明确城市时可以合理假设，但不要编造过度细节。
-
-JSON 示例：
-{
-  "options": [
-    {
-      "title": "轻松亲子海边线",
-      "reason": "节奏更慢，海边活动更多，适合带 6 岁小孩。",
-      "days": [
-        {
-          "day": 1,
-          "title": "抵达与轻松看海",
-          "attractions": [
-            {
-              "name": "鼓浪屿",
-              "summary": "步行体验友好，适合家庭轻松逛岛。",
-              "city": "厦门",
-              "province": "福建"
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}
+1. 必须输出 3 个方案。
+2. 每个方案必须有 title、reason、days。
+3. 每天 attractions 只保留景点，2 到 4 个即可。
+4. 每个景点包含 name、summary，可选 city、province。
+5. 不要输出酒店、餐厅、购物、注意事项。
+6. title 简短，reason 控制在 30 字内。
+7. 风格要有差异，适合用户真实使用。
+${isRetry ? '8. 这次务必保证 JSON 可解析、结构完整。' : ''}
 
 用户需求：${query}
 `;
@@ -95,6 +82,83 @@ const parseContent = (content: string): { options: LlmOption[] } => {
     throw new Error('模型返回的方案数量不足 3 个');
   }
   return { options: parsed.options.slice(0, 3) };
+};
+
+const getAttractionsForMatching = async (supabaseUrl: string, supabaseAnonKey: string) => {
+  const now = Date.now();
+  if (attractionCache && attractionCache.expiresAt > now) {
+    return { data: attractionCache.data, cacheHit: true };
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const { data, error } = await supabase
+    .from('attractions')
+    .select('id,name,province,city,address')
+    .limit(3000);
+
+  if (error) {
+    throw new Error(`景区数据读取失败：${error.message}`);
+  }
+
+  attractionCache = {
+    data: (data || []) as AttractionRow[],
+    expiresAt: now + ATTRACTION_CACHE_TTL_MS
+  };
+
+  return {
+    data: attractionCache.data,
+    cacheHit: false
+  };
+};
+
+const requestCompletion = async ({
+  openAiBaseUrl,
+  openAiApiKey,
+  modelName,
+  query,
+  isRetry = false
+}: {
+  openAiBaseUrl: string;
+  openAiApiKey: string;
+  modelName: string;
+  query: string;
+  isRetry?: boolean;
+}) => {
+  const llmResponse = await fetch(`${openAiBaseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${openAiApiKey}`
+    },
+    body: JSON.stringify({
+      model: modelName,
+      temperature: 0.55,
+      max_tokens: 1400,
+      messages: [
+        {
+          role: 'system',
+          content: '你是一个擅长中文家庭出行和景点攻略规划的助手。'
+        },
+        {
+          role: 'user',
+          content: buildPrompt(query, isRetry)
+        }
+      ]
+    })
+  });
+
+  if (!llmResponse.ok) {
+    const errorText = await llmResponse.text();
+    throw new Error(`AI 服务调用失败：${errorText || llmResponse.statusText}`);
+  }
+
+  const completion = (await llmResponse.json()) as OpenAiResponse;
+  const content = completion.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error('AI 服务未返回有效内容。');
+  }
+
+  return content;
 };
 
 const scoreAttractionMatch = (item: LlmAttraction, attraction: AttractionRow) => {
@@ -177,51 +241,37 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const llmResponse = await fetch(`${openAiBaseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${openAiApiKey}`
-      },
-      body: JSON.stringify({
-        model: modelName,
-        temperature: 0.8,
-        max_tokens: 2200,
-        messages: [
-          {
-            role: 'system',
-            content: '你是一个擅长中文家庭旅行和景点行程规划的助手。'
-          },
-          {
-            role: 'user',
-            content: buildPrompt(query)
-          }
-        ]
-      })
-    });
+    const totalStart = Date.now();
+    const modelStart = Date.now();
+    let retried = false;
+    let parsed: { options: LlmOption[] } | null = null;
 
-    if (!llmResponse.ok) {
-      const errorText = await llmResponse.text();
-      return json(res, 502, { error: `AI 服务调用失败：${errorText || llmResponse.statusText}` });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const content = await requestCompletion({
+          openAiBaseUrl,
+          openAiApiKey,
+          modelName,
+          query,
+          isRetry: attempt > 0
+        });
+        parsed = parseContent(content);
+        break;
+      } catch (error) {
+        if (attempt === 1) throw error;
+        retried = true;
+      }
     }
 
-    const completion = (await llmResponse.json()) as OpenAiResponse;
-    const content = completion.choices?.[0]?.message?.content;
-    if (!content) {
-      return json(res, 502, { error: 'AI 服务未返回有效内容。' });
+    if (!parsed) {
+      return json(res, 502, { error: '这次生成不够稳定，请重新试一次。' });
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
-    const { data: attractions, error: attractionsError } = await supabase
-      .from('attractions')
-      .select('id,name,province,city,address')
-      .limit(3000);
+    const modelMs = Date.now() - modelStart;
 
-    if (attractionsError) {
-      return json(res, 502, { error: `景区数据读取失败：${attractionsError.message}` });
-    }
-
-    const parsed = parseContent(content);
+    const matchStart = Date.now();
+    const attractionData = await getAttractionsForMatching(supabaseUrl, supabaseAnonKey);
+    const attractions = attractionData.data;
 
     const options = parsed.options.map((option, optionIndex) => ({
       id: `plan-${optionIndex + 1}`,
@@ -240,20 +290,38 @@ export default async function handler(req: any, res: any) {
                   summary: item.summary?.trim() || '',
                   city: item.city?.trim() || '',
                   province: item.province?.trim() || '',
-                  ...matchAttraction(item, (attractions || []) as AttractionRow[])
+                  ...matchAttraction(item, attractions)
                 }))
             }))
         : []
     }));
 
     if (options.some((option) => option.days.length === 0)) {
-      return json(res, 502, { error: 'AI 返回的行程结构不完整，请重试一次。' });
+      return json(res, 502, { error: '这次生成的攻略还不够完整，请重新试一次。' });
     }
+
+    const matchMs = Date.now() - matchStart;
+    const totalMs = Date.now() - totalStart;
+
+    console.info('[guide-ai-trip-plans]', {
+      totalMs,
+      modelMs,
+      matchMs,
+      cacheHit: attractionData.cacheHit,
+      retried
+    });
 
     return json(res, 200, {
       options,
       provider: 'volcengine-ark',
-      generatedAt: new Date().toISOString()
+      generatedAt: new Date().toISOString(),
+      meta: {
+        totalMs,
+        modelMs,
+        matchMs,
+        cacheHit: attractionData.cacheHit,
+        retried
+      }
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'AI 行程规划失败';

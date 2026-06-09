@@ -10,13 +10,17 @@ const parseJsonError = async (response: Response) => {
   }
 };
 
-export const generateAiTripPlans = async (query: string): Promise<TripPlanResult> => {
+export const generateAiTripPlans = async (
+  query: string,
+  options?: { signal?: AbortSignal }
+): Promise<TripPlanResult> => {
   const response = await fetch('/api/ai-trip-plans', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ query })
+    body: JSON.stringify({ query }),
+    signal: options?.signal
   });
 
   if (!response.ok) {

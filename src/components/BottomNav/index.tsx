@@ -1,13 +1,22 @@
-import { Home, MapPin, MessageCircle, Sparkles, User } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { Home, MapPin, MessageCircle, User } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import GuideTabIcon from '../GuideTabIcon';
 import { preloadBaiduMapIdle } from '../../utils/baiduMap';
 
-const navItems = [
+type NavItem = {
+  path: string;
+  label: string;
+  icon?: typeof Home;
+  customIcon?: (active: boolean) => ReactNode;
+};
+
+const navItems: NavItem[] = [
   { path: '/', label: '首页', icon: Home },
-  { path: '/ai-trip-planner', label: 'AI规划', icon: Sparkles },
   { path: '/footprint', label: '行程', icon: MapPin },
+  { path: '/ai-trip-planner', label: '攻略', customIcon: (active) => <GuideTabIcon active={active} /> },
   { path: '/space', label: '动态', icon: MessageCircle },
-  { path: '/profile', label: '我的', icon: User },
+  { path: '/profile', label: '我的', icon: User }
 ];
 
 export default function BottomNav() {
@@ -15,8 +24,8 @@ export default function BottomNav() {
   const navigate = useNavigate();
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50">
-      <div className="max-w-md mx-auto flex justify-around items-center h-16">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/95 backdrop-blur">
+      <div className="mx-auto flex h-16 max-w-md items-center justify-around">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
           return (
@@ -29,15 +38,14 @@ export default function BottomNav() {
               onTouchStart={() => {
                 if (item.path === '/footprint') preloadBaiduMapIdle();
               }}
-              className={`flex flex-col items-center justify-center flex-1 h-full transition-colors ${
-                isActive ? 'text-emerald-500' : 'text-gray-400'
+              className={`flex h-full flex-1 flex-col items-center justify-center transition-colors ${
+                isActive ? 'text-emerald-500' : 'text-slate-400'
               }`}
             >
-              <item.icon
-                size={22}
-                className={`transition-transform ${isActive ? 'scale-110' : ''}`}
-              />
-              <span className="text-xs mt-1">{item.label}</span>
+              {item.customIcon
+                ? item.customIcon(isActive)
+                : item.icon && <item.icon size={22} className={`transition-transform ${isActive ? 'scale-110' : ''}`} />}
+              <span className="mt-1 whitespace-nowrap text-[11px]">{item.label}</span>
             </button>
           );
         })}

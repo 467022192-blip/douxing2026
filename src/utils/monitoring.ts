@@ -7,6 +7,29 @@ type ReportErrorPayload = {
   userAgent?: string;
 };
 
+type EventPayload = Record<string, unknown>;
+
+export const trackEvent = (name: string, payload: EventPayload = {}) => {
+  if (env.isDev) {
+    console.info(`[event] ${name}`, payload);
+    return;
+  }
+
+  if (env.sentryDsn) {
+    import('@sentry/react')
+      .then((Sentry) => {
+        Sentry.addBreadcrumb({
+          category: 'guide',
+          level: 'info',
+          message: name,
+          data: payload
+        });
+      })
+      .catch(() => {
+      });
+  }
+};
+
 export const initMonitoring = () => {
   if (env.sentryDsn) {
     import('@sentry/react')
