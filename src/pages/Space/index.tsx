@@ -18,6 +18,7 @@ export default function Space() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const PAGE_SIZE = 10;
+  const LIKE_STATUS_TIMEOUT_MS = 1500;
   
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -47,6 +48,20 @@ export default function Space() {
   const [attractionQuery, setAttractionQuery] = useState('');
   const [isLoadingAttractions, setIsLoadingAttractions] = useState(false);
 
+  const checkLikeWithTimeout = useCallback(async (postId: string, userId: string) => {
+    try {
+      return await Promise.race<boolean>([
+        checkLike(postId, userId),
+        new Promise<boolean>((resolve) => {
+          window.setTimeout(() => resolve(false), LIKE_STATUS_TIMEOUT_MS);
+        }),
+      ]);
+    } catch (error) {
+      console.warn('读取点赞状态失败，已跳过：', error);
+      return false;
+    }
+  }, []);
+
   const fetchPostsData = useCallback(async (pageNum: number, isRefresh = false) => {
     try {
       if (isRefresh) {
@@ -70,7 +85,7 @@ export default function Space() {
       if (isAuthenticated && user) {
         finalPosts = await Promise.all(
           data.map(async (post) => {
-            const isLiked = await checkLike(post.id, user.id);
+            const isLiked = await checkLikeWithTimeout(post.id, user.id);
             return { ...post, is_liked: isLiked };
           })
         );
@@ -92,7 +107,7 @@ export default function Space() {
       setIsRefreshing(false);
       setIsLoadingMore(false);
     }
-  }, [isAuthenticated, user]);
+  }, [checkLikeWithTimeout, isAuthenticated, user]);
 
   useEffect(() => {
     setPage(1);

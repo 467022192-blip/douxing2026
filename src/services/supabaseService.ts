@@ -415,7 +415,8 @@ export const getPosts = async (page = 1, pageSize = 10): Promise<Post[]> => {
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
-  const { data, error } = await supabase
+  // Public feed should not be blocked by broken auth/session recovery.
+  const { data, error } = await publicSupabase
     .from('posts')
     .select(`
       *,
@@ -453,7 +454,7 @@ export const getPosts = async (page = 1, pageSize = 10): Promise<Post[]> => {
   let attractionsMap: Record<string, Attraction> = {};
   
   if (attractionIds.length > 0) {
-    const { data: attractionsData } = await supabase
+    const { data: attractionsData } = await publicSupabase
       .from('attractions')
       .select('*')
       .in('id', attractionIds);
