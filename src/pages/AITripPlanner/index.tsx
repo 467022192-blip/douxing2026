@@ -566,6 +566,11 @@ export default function AITripPlanner() {
     setErrorMessage('');
   };
 
+  const handleClearQuery = useCallback(() => {
+    setQuery('');
+    setErrorMessage('');
+  }, []);
+
   const handleOpenDetail = useCallback(async (item: TripPlanAttractionItem) => {
     if (!isAuthenticated) {
       const shouldLogin = window.confirm('登录后才能查看景点详情，并可尽量保留当前攻略，避免稍后找不到。现在去登录吗？');
@@ -657,6 +662,7 @@ export default function AITripPlanner() {
             examples={EXAMPLE_QUERIES}
             isGenerating={isWorking}
             onQueryChange={setQuery}
+            onClearQuery={handleClearQuery}
             onUseExample={handleUseExample}
             onSubmit={() => {
               void triggerGenerate();
