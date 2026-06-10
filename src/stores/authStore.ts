@@ -137,6 +137,8 @@ const upsertProfileInBackground = (
 };
 
 let authListenerBound = false;
+let initAuthPromise: Promise<void> | null = null;
+let initAuthCompleted = false;
 
 const ensureAuthListener = (set: (partial: Partial<AuthState>) => void) => {
   if (authListenerBound) return;
@@ -221,6 +223,10 @@ export const useAuthStore = create<AuthState>()(
 
       // 初始化认证状态
       initAuth: async () => {
+        if (initAuthCompleted) return;
+        if (initAuthPromise) return initAuthPromise;
+
+        initAuthPromise = (async () => {
         try {
           ensureAuthListener(set);
           // #region debug-point AGR:init-start
@@ -266,6 +272,13 @@ export const useAuthStore = create<AuthState>()(
           console.error('Auth init error:', error);
           set({ isLoading: false });
         }
+        })()
+          .finally(() => {
+            initAuthCompleted = true;
+            initAuthPromise = null;
+          });
+
+        return initAuthPromise;
       },
 
       // 邮箱登录
