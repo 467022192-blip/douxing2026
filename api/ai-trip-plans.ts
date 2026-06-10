@@ -105,14 +105,22 @@ const getGenerationConfig = (query: string) => {
   const isLongTrip = (requestedDays ?? 0) >= 7;
   const isVeryLongTrip = (requestedDays ?? 0) >= 10;
   const maxTokens = requestedDays
-    ? Math.min(4200, Math.max(1800, 1400 + requestedDays * 190))
+    ? isVeryLongTrip
+      ? 2200
+      : isLongTrip
+        ? 2000
+        : Math.min(2200, Math.max(1600, 1200 + requestedDays * 120))
     : 1800;
+  const temperature = isLongTrip ? 0.35 : 0.7;
+  const retryMaxTokens = Math.min(2800, maxTokens + 300);
 
   return {
     requestedDays,
     isLongTrip,
     isVeryLongTrip,
     maxTokens,
+    retryMaxTokens,
+    temperature,
   };
 };
 
@@ -130,7 +138,7 @@ const buildPrompt = (query: string, config: ReturnType<typeof getGenerationConfi
 8. 用户没有明确城市时可以合理假设，但不要编造过度细节。
 9. title 保持简洁，reason 控制在一两句话内。
 10. 如果用户明确提到了天数，days 的数量必须与天数一致。
-11. ${config.isLongTrip ? '长行程时请保持紧凑：每天只放 1-2 个核心景点，summary 一句话即可。' : '每一天可以安排 1-2 个核心景点。'}
+11. ${config.isLongTrip ? '长行程时请保持紧凑：每天只放 1 个核心景点，summary 控制在 10-16 个字。' : '每一天可以安排 1-2 个核心景点。'}
 12. ${config.isVeryLongTrip ? '当天数 >= 10 时，优先保证每天都有内容，不要省略后半程。' : '不要省略任何一天。'}
 
 JSON 示例：
@@ -168,7 +176,7 @@ const buildRetryPrompt = (query: string, config: ReturnType<typeof getGeneration
 4. 不能出现尾逗号。
 5. 顶层结构必须是 {"options":[...]}，并且 options 恰好返回 3 个方案。
 6. 如果用户明确提到了天数，3 个方案里的 days 数量都必须与天数一致。
-7. ${config.isLongTrip ? '这是长行程，请每天只保留 1 个最核心景点或 1-2 个高度相关景点，summary 极简。' : '每天请保留 1-2 个核心景点。'}
+7. ${config.isLongTrip ? '这是长行程，请每天只保留 1 个最核心景点，summary 极简，不要写长句。' : '每天请保留 1-2 个核心景点。'}
 8. 不要让任何一个方案出现空 days，也不要让任何一天出现空 attractions。
 
 用户需求：${query}
@@ -415,7 +423,7 @@ export default async function handler(req: any, res: any) {
       openAiApiKey,
       modelName,
       buildPrompt(query, generationConfig),
-      0.7,
+      generationConfig.temperature,
       generationConfig.maxTokens
     );
     modelMs += firstCompletion.durationMs;
@@ -439,7 +447,7 @@ export default async function handler(req: any, res: any) {
         modelName,
         buildRetryPrompt(query, generationConfig),
         0.2,
-        Math.min(4200, generationConfig.maxTokens + 500)
+        generationConfig.retryMaxTokens
       );
       modelMs += retryCompletion.durationMs;
       parsed = parseContent(retryCompletion.content);
@@ -459,7 +467,7 @@ export default async function handler(req: any, res: any) {
         modelName,
         buildRetryPrompt(query, generationConfig),
         0.2,
-        Math.min(4200, generationConfig.maxTokens + 500)
+        generationConfig.retryMaxTokens
       );
       modelMs += structureRetry.durationMs;
       parsed = parseContent(structureRetry.content);
