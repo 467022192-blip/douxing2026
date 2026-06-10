@@ -8,12 +8,14 @@ type LlmAttraction = {
 type LlmDay = {
   day?: number;
   title?: string;
+  summary?: string;
   attractions?: LlmAttraction[];
 };
 
 type LlmOption = {
   title?: string;
   reason?: string;
+  destination?: string;
   days?: LlmDay[];
 };
 
@@ -97,13 +99,13 @@ const getGenerationConfig = (query: string) => {
   const isVeryLongTrip = (requestedDays ?? 0) >= 10;
   const maxTokens = requestedDays
     ? isVeryLongTrip
-      ? 2200
+      ? 3200
       : isLongTrip
-        ? 2000
+        ? 2400
         : Math.min(2200, Math.max(1600, 1200 + requestedDays * 120))
     : 1800;
-  const temperature = isLongTrip ? 0.35 : 0.7;
-  const retryMaxTokens = Math.min(2800, maxTokens + 300);
+  const temperature = isVeryLongTrip ? 0.2 : isLongTrip ? 0.35 : 0.7;
+  const retryMaxTokens = isVeryLongTrip ? 3600 : Math.min(3200, maxTokens + 400);
 
   return {
     requestedDays,
@@ -129,8 +131,9 @@ const buildPrompt = (query: string, config: ReturnType<typeof getGenerationConfi
 8. 用户没有明确城市时可以合理假设，但不要编造过度细节。
 9. title 保持简洁，reason 控制在一两句话内。
 10. 如果用户明确提到了天数，days 的数量必须与天数一致。
-11. ${config.isLongTrip ? '长行程时请保持紧凑：每天只放 1 个核心景点，summary 控制在 10-16 个字。' : '每一天可以安排 1-2 个核心景点。'}
-12. ${config.isVeryLongTrip ? '当天数 >= 10 时，优先保证每天都有内容，不要省略后半程。' : '不要省略任何一天。'}
+11. ${config.isLongTrip ? '长行程时请保持紧凑：每天只放 1 个核心景点，summary 控制在 8-14 个字。' : '每一天可以安排 1-2 个核心景点。'}
+12. ${config.isVeryLongTrip ? '当天数 >= 10 时，必须优先保证 10 天都完整返回；title、reason、day.title 都尽量短，不要写城市介绍。' : '不要省略任何一天。'}
+13. ${config.isVeryLongTrip ? 'city、province 仅在确有必要时填写，不要每个景点都重复填写。' : 'city、province 可按需填写。'}
 
 JSON 示例：
 {
@@ -166,9 +169,11 @@ const buildRetryPrompt = (query: string, config: ReturnType<typeof getGeneration
 3. 所有字符串必须使用双引号。
 4. 不能出现尾逗号。
 5. 顶层结构必须是 {"options":[...]}，并且 options 恰好返回 3 个方案。
-6. 如果用户明确提到了天数，3 个方案里的 days 数量都必须与天数一致。
-7. ${config.isLongTrip ? '这是长行程，请每天只保留 1 个最核心景点，summary 极简，不要写长句。' : '每天请保留 1-2 个核心景点。'}
-8. 不要让任何一个方案出现空 days，也不要让任何一天出现空 attractions。
+6. 每个方案都必须包含 title、reason、days。
+7. 每个 day 都必须包含 day、title、attractions；attractions 内每项都必须是对象，至少包含 name，可选 summary、city、province。
+8. 如果用户明确提到了天数，3 个方案里的 days 数量都必须与天数一致。
+9. ${config.isLongTrip ? '这是长行程，请每天只保留 1 个最核心景点，summary 极简，不要写长句。' : '每天请保留 1-2 个核心景点。'}
+10. 不要让任何一个方案出现空 days，也不要让任何一天出现空 attractions，不要把 attractions 写成字符串数组。
 
 用户需求：${query}
 `;
@@ -209,10 +214,35 @@ const isRetryableJsonParseError = (error: unknown) => {
   );
 };
 
+const normalizeAttractionItem = (item: unknown, daySummary?: string): LlmAttraction | null => {
+  if (typeof item === 'string') {
+    const name = item.trim();
+    return name ? { name, summary: daySummary?.trim() || '' } : null;
+  }
+
+  if (!item || typeof item !== 'object') return null;
+
+  const candidate = item as Record<string, unknown>;
+  const name =
+    (typeof candidate.name === 'string' && candidate.name.trim()) ||
+    (typeof candidate.attraction === 'string' && candidate.attraction.trim()) ||
+    (typeof candidate.spot === 'string' && candidate.spot.trim()) ||
+    '';
+
+  if (!name) return null;
+
+  return {
+    name,
+    summary: typeof candidate.summary === 'string' ? candidate.summary : daySummary,
+    city: typeof candidate.city === 'string' ? candidate.city : '',
+    province: typeof candidate.province === 'string' ? candidate.province : '',
+  };
+};
+
 const buildMappedOptions = (parsed: { options: LlmOption[] }) =>
   parsed.options.map((option, optionIndex) => ({
     id: `plan-${optionIndex + 1}`,
-    title: option.title?.trim() || `推荐方案 ${optionIndex + 1}`,
+    title: option.title?.trim() || option.destination?.trim() || `推荐方案 ${optionIndex + 1}`,
     reason: option.reason?.trim() || '结合你的需求做了节奏、景观和人群偏好的平衡。',
     days: Array.isArray(option.days)
       ? option.days
@@ -221,7 +251,8 @@ const buildMappedOptions = (parsed: { options: LlmOption[] }) =>
             day: Number.isFinite(day.day) ? Number(day.day) : dayIndex + 1,
             title: day.title?.trim() || `第 ${dayIndex + 1} 天`,
             attractions: (day.attractions || [])
-              .filter((item) => item?.name && item.name.trim())
+              .map((item) => normalizeAttractionItem(item, day.summary))
+              .filter((item): item is LlmAttraction => Boolean(item))
               .map((item) => ({
                 name: item.name!.trim(),
                 summary: item.summary?.trim() || '',

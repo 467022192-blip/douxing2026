@@ -70,6 +70,107 @@ const reportAuthDebug = (hypothesisId: string, location: string, msg: string, da
   }).catch(() => {});
 };
 
+const createFallbackProfile = (user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> | null }) => ({
+  id: user.id,
+  email: user.email ?? undefined,
+  nickname:
+    (typeof user.user_metadata?.nickname === 'string' && user.user_metadata.nickname) ||
+    user.email?.split('@')[0] ||
+    '旅行者',
+  avatar_url:
+    (typeof user.user_metadata?.avatar_url === 'string' && user.user_metadata.avatar_url) ||
+    (user.email ? `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.email}` : undefined),
+  is_private: false,
+} satisfies UserProfile);
+
+const syncProfileForUser = async (
+  user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> | null },
+  set: (partial: Partial<AuthState>) => void
+) => {
+  const profile = await fetchProfileWithRetry(user.id);
+  if (profile) {
+    set({
+      user: profile,
+      isAuthenticated: true,
+      isLoading: false,
+    });
+    return;
+  }
+
+  set({
+    user: createFallbackProfile(user),
+    isAuthenticated: true,
+    isLoading: false,
+  });
+};
+
+const deferProfileSync = (
+  user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> | null },
+  set: (partial: Partial<AuthState>) => void
+) => {
+  window.setTimeout(() => {
+    void syncProfileForUser(user, set);
+  }, 0);
+};
+
+const upsertProfileInBackground = (
+  profileData: Database['public']['Tables']['profiles']['Insert'],
+) => {
+  window.setTimeout(() => {
+    void (async () => {
+      try {
+        const { error } = await supabase
+          .from('profiles')
+          .upsert(profileData);
+        reportAuthDebug('AGR', 'authStore:profileUpsert:background', '[DEBUG] background profile upsert done', {
+          userId: profileData.id,
+          profileError: error?.message ?? null,
+        });
+      } catch (error) {
+        reportAuthDebug('AGR', 'authStore:profileUpsert:background:catch', '[DEBUG] background profile upsert catch', {
+          userId: profileData.id,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })();
+  }, 0);
+};
+
+let authListenerBound = false;
+
+const ensureAuthListener = (set: (partial: Partial<AuthState>) => void) => {
+  if (authListenerBound) return;
+  authListenerBound = true;
+
+  supabase.auth.onAuthStateChange((event, session) => {
+    // #region debug-point AGR:on-auth-change-start
+    reportAuthDebug('AGR', 'authStore:onAuthStateChange:start', '[DEBUG] auth state change start', {
+      event,
+      hasSession: Boolean(session),
+      userId: session?.user?.id ?? null,
+    });
+    // #endregion
+
+    if (session?.user) {
+      set({
+        user: createFallbackProfile(session.user),
+        isAuthenticated: true,
+        isLoading: false,
+      });
+      deferProfileSync(session.user, set);
+    } else {
+      set({ user: null, isAuthenticated: false, isLoading: false });
+    }
+
+    // #region debug-point AGR:on-auth-change-done
+    reportAuthDebug('AGR', 'authStore:onAuthStateChange:done', '[DEBUG] auth state change done', {
+      event,
+      hasSession: Boolean(session),
+    });
+    // #endregion
+  });
+};
+
 interface AuthState {
   user: UserProfile | null;
   isAuthenticated: boolean;
@@ -121,6 +222,7 @@ export const useAuthStore = create<AuthState>()(
       // 初始化认证状态
       initAuth: async () => {
         try {
+          ensureAuthListener(set);
           // #region debug-point AGR:init-start
           reportAuthDebug('AGR', 'authStore:initAuth:start', '[DEBUG] initAuth start', {
             hasAuthStorage: Boolean(getAuthStorageValue()),
@@ -140,58 +242,15 @@ export const useAuthStore = create<AuthState>()(
           // #endregion
           
           if (session?.user) {
-            const profile = await fetchProfileWithRetry(session.user.id);
-            // #region debug-point AGR:init-after-profile
-            reportAuthDebug('AGR', 'authStore:initAuth:afterProfile', '[DEBUG] initAuth after profile', {
-              userId: session.user.id,
-              hasProfile: Boolean(profile),
-            });
-            // #endregion
-              
             set({ 
-              user: profile as UserProfile,
+              user: createFallbackProfile(session.user),
               isAuthenticated: true,
               isLoading: false 
             });
+            deferProfileSync(session.user, set);
           } else {
             set({ isLoading: false });
           }
-          
-          // 监听认证状态变化
-          supabase.auth.onAuthStateChange(async (_event, session) => {
-            // #region debug-point AGR:on-auth-change-start
-            reportAuthDebug('AGR', 'authStore:onAuthStateChange:start', '[DEBUG] auth state change start', {
-              event: _event,
-              hasSession: Boolean(session),
-              userId: session?.user?.id ?? null,
-            });
-            // #endregion
-            if (session?.user) {
-              const profile = await fetchProfileWithRetry(session.user.id);
-              // #region debug-point AGR:on-auth-change-after-profile
-              reportAuthDebug('AGR', 'authStore:onAuthStateChange:afterProfile', '[DEBUG] auth state change after profile', {
-                event: _event,
-                userId: session.user.id,
-                hasProfile: Boolean(profile),
-              });
-              // #endregion
-                
-              if (profile) {
-                set({ 
-                  user: profile as UserProfile,
-                  isAuthenticated: true
-                });
-              }
-            } else {
-              set({ user: null, isAuthenticated: false });
-            }
-            // #region debug-point AGR:on-auth-change-done
-            reportAuthDebug('AGR', 'authStore:onAuthStateChange:done', '[DEBUG] auth state change done', {
-              event: _event,
-              hasSession: Boolean(session),
-            });
-            // #endregion
-          });
         } catch (error) {
           // #region debug-point AGR:init-catch
           reportAuthDebug('AGR', 'authStore:initAuth:catch', '[DEBUG] initAuth catch', {
@@ -217,7 +276,7 @@ export const useAuthStore = create<AuthState>()(
             email,
           });
           // #endregion
-          const { error } = await supabase.auth.signInWithPassword({
+          const { data, error } = await supabase.auth.signInWithPassword({
             email,
             password,
           });
@@ -225,27 +284,15 @@ export const useAuthStore = create<AuthState>()(
           // #region debug-point AGR:login-after-signin
           reportAuthDebug('AGR', 'authStore:login:afterSignIn', '[DEBUG] login after signIn', {
             email,
+            hasSession: Boolean(data.session),
+            userId: data.session?.user?.id ?? null,
           });
           // #endregion
 
-          const { data: { session } } = await supabase.auth.getSession();
-          // #region debug-point AGR:login-after-session
-          reportAuthDebug('AGR', 'authStore:login:afterSession', '[DEBUG] login after session', {
-            email,
-            hasSession: Boolean(session),
-            userId: session?.user?.id ?? null,
-          });
-          // #endregion
+          const session = data.session;
           if (session?.user) {
-            const profile = await fetchProfileWithRetry(session.user.id);
-            // #region debug-point AGR:login-after-profile
-            reportAuthDebug('AGR', 'authStore:login:afterProfile', '[DEBUG] login after profile', {
-              email,
-              userId: session.user.id,
-              hasProfile: Boolean(profile),
-            });
-            // #endregion
-            set({ user: profile, isAuthenticated: true });
+            set({ user: createFallbackProfile(session.user), isAuthenticated: true, isLoading: false });
+            deferProfileSync(session.user, set);
           }
           return { error: null };
         } catch (error) {
@@ -299,34 +346,13 @@ export const useAuthStore = create<AuthState>()(
               nickname: nickname || email.split('@')[0],
               avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`,
             };
-            
-            const { error: profileError } = await supabase
-              .from('profiles')
-              .upsert(profileData);
-            // #region debug-point AGR:register-after-profile-upsert
-            reportAuthDebug('AGR', 'authStore:register:afterProfileUpsert', '[DEBUG] register after profile upsert', {
-              email,
-              userId: data.user.id,
-              profileError: profileError?.message ?? null,
-            });
-            // #endregion
-              
-            if (profileError) {
-              console.error('Profile creation error:', profileError);
-              // 但用户已经注册成功，我们依然返回 null
-            }
+
+            upsertProfileInBackground(profileData);
           }
 
           if (data.session?.user) {
-            const profile = await fetchProfileWithRetry(data.session.user.id);
-            // #region debug-point AGR:register-after-profile-fetch
-            reportAuthDebug('AGR', 'authStore:register:afterProfileFetch', '[DEBUG] register after profile fetch', {
-              email,
-              userId: data.session.user.id,
-              hasProfile: Boolean(profile),
-            });
-            // #endregion
-            set({ user: profile, isAuthenticated: true });
+            set({ user: createFallbackProfile(data.session.user), isAuthenticated: true, isLoading: false });
+            deferProfileSync(data.session.user, set);
           }
           
           return { error: null, needsEmailConfirmation };
