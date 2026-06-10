@@ -40,14 +40,16 @@ export default function BottomNav() {
               onTouchStart={() => {
                 if (item.path === '/footprint') preloadBaiduMapIdle();
               }}
-              className={`flex h-full flex-1 flex-col items-center justify-center transition-colors ${
+              className={`flex h-full flex-1 flex-col items-center justify-center transition-all ${
                 isActive ? 'text-emerald-500' : 'text-slate-400'
               }`}
             >
-              {item.customIcon
-                ? item.customIcon(isActive)
-                : item.icon && <item.icon size={22} className={`transition-transform ${isActive ? 'scale-110' : ''}`} />}
-              <span className="mt-1 whitespace-nowrap text-[11px]">{item.label}</span>
+              <div className="mb-1 flex h-[22px] items-center justify-center">
+                {item.customIcon
+                  ? item.customIcon(isActive)
+                  : item.icon && <item.icon size={22} className={`transition-transform ${isActive ? 'scale-110' : ''}`} />}
+              </div>
+              <span className="whitespace-nowrap text-[11px] leading-none">{item.label}</span>
             </button>
           );
         })}
