@@ -26,6 +26,22 @@ type OpenAiResponse = {
   }>;
 };
 
+const reportGuideDebug = (hypothesisId: string, location: string, msg: string, data: Record<string, unknown>) => {
+  fetch('http://127.0.0.1:7777/event', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sessionId: 'guide-longtrip-regression',
+      runId: 'pre-fix',
+      hypothesisId,
+      location,
+      msg,
+      data,
+      ts: Date.now(),
+    }),
+  }).catch(() => {});
+};
+
 const normalizeResponseText = (text: string) => {
   const trimmed = text.trim();
   if (!trimmed.startsWith('```')) return trimmed;
@@ -317,6 +333,17 @@ export default async function handler(req: any, res: any) {
   try {
     const totalStart = Date.now();
     const generationConfig = getGenerationConfig(query);
+    // #region debug-point GLR:config
+    reportGuideDebug('GLR', 'ai-trip-plans:config', '[DEBUG] guide generation config', {
+      queryPreview: query.slice(0, 120),
+      requestedDays: generationConfig.requestedDays,
+      isLongTrip: generationConfig.isLongTrip,
+      isVeryLongTrip: generationConfig.isVeryLongTrip,
+      maxTokens: generationConfig.maxTokens,
+      retryMaxTokens: generationConfig.retryMaxTokens,
+      temperature: generationConfig.temperature,
+    });
+    // #endregion
     let modelMs = 0;
     let retried = false;
     const firstCompletion = await requestCompletion(
@@ -328,11 +355,26 @@ export default async function handler(req: any, res: any) {
       generationConfig.maxTokens
     );
     modelMs += firstCompletion.durationMs;
+    // #region debug-point GLR:first-completion
+    reportGuideDebug('GLR', 'ai-trip-plans:first-completion', '[DEBUG] first completion received', {
+      requestedDays: generationConfig.requestedDays,
+      durationMs: firstCompletion.durationMs,
+      finishReason: firstCompletion.finishReason,
+      contentPreview: firstCompletion.content.slice(0, 1500),
+    });
+    // #endregion
     let parsed: { options: LlmOption[] };
 
     try {
       parsed = parseContent(firstCompletion.content);
     } catch (error) {
+      // #region debug-point GLR:first-parse-failed
+      reportGuideDebug('GLR', 'ai-trip-plans:first-parse-failed', '[DEBUG] first parse failed', {
+        requestedDays: generationConfig.requestedDays,
+        finishReason: firstCompletion.finishReason,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      // #endregion
       if (!isRetryableJsonParseError(error)) {
         throw error;
       }
@@ -348,16 +390,66 @@ export default async function handler(req: any, res: any) {
         generationConfig.retryMaxTokens
       );
       modelMs += retryCompletion.durationMs;
+      // #region debug-point GLR:json-retry-completion
+      reportGuideDebug('GLR', 'ai-trip-plans:json-retry-completion', '[DEBUG] json retry completion received', {
+        requestedDays: generationConfig.requestedDays,
+        durationMs: retryCompletion.durationMs,
+        finishReason: retryCompletion.finishReason,
+        contentPreview: retryCompletion.content.slice(0, 1500),
+      });
+      // #endregion
       parsed = parseContent(retryCompletion.content);
     }
 
+    // #region debug-point GLR:parsed-options
+    reportGuideDebug('GLR', 'ai-trip-plans:parsed-options', '[DEBUG] parsed options', {
+      requestedDays: generationConfig.requestedDays,
+      optionShapes: parsed.options.map((option, optionIndex) => ({
+        optionIndex,
+        title: option.title ?? null,
+        daysCount: Array.isArray(option.days) ? option.days.length : null,
+        attractionsPerDay: Array.isArray(option.days)
+          ? option.days.map((day, dayIndex) => ({
+              dayIndex,
+              title: day.title ?? null,
+              attractionsCount: Array.isArray(day.attractions) ? day.attractions.length : null,
+            }))
+          : null,
+      })),
+    });
+    // #endregion
+
     let options = buildMappedOptions(parsed);
+    // #region debug-point GLR:mapped-options
+    reportGuideDebug('GLR', 'ai-trip-plans:mapped-options', '[DEBUG] mapped options', {
+      requestedDays: generationConfig.requestedDays,
+      optionShapes: options.map((option, optionIndex) => ({
+        optionIndex,
+        title: option.title,
+        daysCount: option.days.length,
+        attractionsPerDay: option.days.map((day) => ({
+          day: day.day,
+          title: day.title,
+          attractionsCount: day.attractions.length,
+        })),
+      })),
+    });
+    // #endregion
 
     if (
       hasIncompleteStructure(options) ||
       hasRequestedDayCountMismatch(options, generationConfig.requestedDays) ||
       firstCompletion.finishReason === 'length'
     ) {
+      // #region debug-point GLR:structure-retry-trigger
+      reportGuideDebug('GLR', 'ai-trip-plans:structure-retry-trigger', '[DEBUG] structure retry triggered', {
+        requestedDays: generationConfig.requestedDays,
+        firstFinishReason: firstCompletion.finishReason,
+        hasIncompleteStructure: hasIncompleteStructure(options),
+        hasRequestedDayCountMismatch: hasRequestedDayCountMismatch(options, generationConfig.requestedDays),
+        optionDayCounts: options.map((option) => option.days.length),
+      });
+      // #endregion
       retried = true;
       const structureRetry = await requestCompletion(
         openAiBaseUrl,
@@ -368,13 +460,37 @@ export default async function handler(req: any, res: any) {
         generationConfig.retryMaxTokens
       );
       modelMs += structureRetry.durationMs;
+      // #region debug-point GLR:structure-retry-completion
+      reportGuideDebug('GLR', 'ai-trip-plans:structure-retry-completion', '[DEBUG] structure retry completion received', {
+        requestedDays: generationConfig.requestedDays,
+        durationMs: structureRetry.durationMs,
+        finishReason: structureRetry.finishReason,
+        contentPreview: structureRetry.content.slice(0, 1500),
+      });
+      // #endregion
       parsed = parseContent(structureRetry.content);
       options = buildMappedOptions(parsed);
+      // #region debug-point GLR:structure-retry-mapped
+      reportGuideDebug('GLR', 'ai-trip-plans:structure-retry-mapped', '[DEBUG] structure retry mapped options', {
+        requestedDays: generationConfig.requestedDays,
+        optionDayCounts: options.map((option) => option.days.length),
+        optionAttractionCounts: options.map((option) => option.days.map((day) => day.attractions.length)),
+      });
+      // #endregion
 
       if (
         hasIncompleteStructure(options) ||
         hasRequestedDayCountMismatch(options, generationConfig.requestedDays)
       ) {
+        // #region debug-point GLR:structure-retry-failed
+        reportGuideDebug('GLR', 'ai-trip-plans:structure-retry-failed', '[DEBUG] structure retry failed', {
+          requestedDays: generationConfig.requestedDays,
+          hasIncompleteStructure: hasIncompleteStructure(options),
+          hasRequestedDayCountMismatch: hasRequestedDayCountMismatch(options, generationConfig.requestedDays),
+          optionDayCounts: options.map((option) => option.days.length),
+          optionAttractionCounts: options.map((option) => option.days.map((day) => day.attractions.length)),
+        });
+        // #endregion
         return json(res, 502, { error: 'AI 返回的行程结构不完整，请重试一次。' });
       }
     }

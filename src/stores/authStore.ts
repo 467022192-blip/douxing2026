@@ -54,6 +54,22 @@ const recoverBrokenAuthState = async (reason: string, error: unknown) => {
   }
 };
 
+const reportAuthDebug = (hypothesisId: string, location: string, msg: string, data: Record<string, unknown>) => {
+  fetch('http://127.0.0.1:7777/event', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sessionId: 'auth-guide-regression',
+      runId: 'pre-fix',
+      hypothesisId,
+      location,
+      msg,
+      data,
+      ts: Date.now(),
+    }),
+  }).catch(() => {});
+};
+
 interface AuthState {
   user: UserProfile | null;
   isAuthenticated: boolean;
@@ -105,15 +121,32 @@ export const useAuthStore = create<AuthState>()(
       // 初始化认证状态
       initAuth: async () => {
         try {
+          // #region debug-point AGR:init-start
+          reportAuthDebug('AGR', 'authStore:initAuth:start', '[DEBUG] initAuth start', {
+            hasAuthStorage: Boolean(getAuthStorageValue()),
+          });
+          // #endregion
           const { data: { session }, error } = await withAuthTimeout(
             supabase.auth.getSession(),
             AUTH_RECOVERY_TIMEOUT_MS,
             'Auth recovery timeout: getSession stalled'
           );
           if (error) throw error;
+          // #region debug-point AGR:init-after-session
+          reportAuthDebug('AGR', 'authStore:initAuth:afterSession', '[DEBUG] initAuth after session', {
+            hasSession: Boolean(session),
+            userId: session?.user?.id ?? null,
+          });
+          // #endregion
           
           if (session?.user) {
             const profile = await fetchProfileWithRetry(session.user.id);
+            // #region debug-point AGR:init-after-profile
+            reportAuthDebug('AGR', 'authStore:initAuth:afterProfile', '[DEBUG] initAuth after profile', {
+              userId: session.user.id,
+              hasProfile: Boolean(profile),
+            });
+            // #endregion
               
             set({ 
               user: profile as UserProfile,
@@ -126,8 +159,22 @@ export const useAuthStore = create<AuthState>()(
           
           // 监听认证状态变化
           supabase.auth.onAuthStateChange(async (_event, session) => {
+            // #region debug-point AGR:on-auth-change-start
+            reportAuthDebug('AGR', 'authStore:onAuthStateChange:start', '[DEBUG] auth state change start', {
+              event: _event,
+              hasSession: Boolean(session),
+              userId: session?.user?.id ?? null,
+            });
+            // #endregion
             if (session?.user) {
               const profile = await fetchProfileWithRetry(session.user.id);
+              // #region debug-point AGR:on-auth-change-after-profile
+              reportAuthDebug('AGR', 'authStore:onAuthStateChange:afterProfile', '[DEBUG] auth state change after profile', {
+                event: _event,
+                userId: session.user.id,
+                hasProfile: Boolean(profile),
+              });
+              // #endregion
                 
               if (profile) {
                 set({ 
@@ -138,8 +185,20 @@ export const useAuthStore = create<AuthState>()(
             } else {
               set({ user: null, isAuthenticated: false });
             }
+            // #region debug-point AGR:on-auth-change-done
+            reportAuthDebug('AGR', 'authStore:onAuthStateChange:done', '[DEBUG] auth state change done', {
+              event: _event,
+              hasSession: Boolean(session),
+            });
+            // #endregion
           });
         } catch (error) {
+          // #region debug-point AGR:init-catch
+          reportAuthDebug('AGR', 'authStore:initAuth:catch', '[DEBUG] initAuth catch', {
+            errorMessage: error instanceof Error ? error.message : String(error),
+            hasAuthStorage: Boolean(getAuthStorageValue()),
+          });
+          // #endregion
           if (isRecoverableAuthError(error)) {
             await recoverBrokenAuthState('initAuth', error);
             set({ user: null, isAuthenticated: false, isLoading: false });
@@ -153,19 +212,49 @@ export const useAuthStore = create<AuthState>()(
       // 邮箱登录
       loginWithEmail: async (email: string, password: string) => {
         try {
+          // #region debug-point AGR:login-start
+          reportAuthDebug('AGR', 'authStore:login:start', '[DEBUG] login start', {
+            email,
+          });
+          // #endregion
           const { error } = await supabase.auth.signInWithPassword({
             email,
             password,
           });
           if (error) throw error;
+          // #region debug-point AGR:login-after-signin
+          reportAuthDebug('AGR', 'authStore:login:afterSignIn', '[DEBUG] login after signIn', {
+            email,
+          });
+          // #endregion
 
           const { data: { session } } = await supabase.auth.getSession();
+          // #region debug-point AGR:login-after-session
+          reportAuthDebug('AGR', 'authStore:login:afterSession', '[DEBUG] login after session', {
+            email,
+            hasSession: Boolean(session),
+            userId: session?.user?.id ?? null,
+          });
+          // #endregion
           if (session?.user) {
             const profile = await fetchProfileWithRetry(session.user.id);
+            // #region debug-point AGR:login-after-profile
+            reportAuthDebug('AGR', 'authStore:login:afterProfile', '[DEBUG] login after profile', {
+              email,
+              userId: session.user.id,
+              hasProfile: Boolean(profile),
+            });
+            // #endregion
             set({ user: profile, isAuthenticated: true });
           }
           return { error: null };
         } catch (error) {
+          // #region debug-point AGR:login-catch
+          reportAuthDebug('AGR', 'authStore:login:catch', '[DEBUG] login catch', {
+            email,
+            errorMessage: error instanceof Error ? error.message : String(error),
+          });
+          // #endregion
           if (isRecoverableAuthError(error)) {
             await recoverBrokenAuthState('loginWithEmail', error);
           }
@@ -176,6 +265,12 @@ export const useAuthStore = create<AuthState>()(
       // 注册
       registerWithEmail: async (email: string, password: string, nickname: string) => {
         try {
+          // #region debug-point AGR:register-start
+          reportAuthDebug('AGR', 'authStore:register:start', '[DEBUG] register start', {
+            email,
+            nickname,
+          });
+          // #endregion
           // 1. 注册账号
           const { data, error } = await supabase.auth.signUp({
             email,
@@ -185,6 +280,14 @@ export const useAuthStore = create<AuthState>()(
             }
           });
           if (error) throw error;
+          // #region debug-point AGR:register-after-signup
+          reportAuthDebug('AGR', 'authStore:register:afterSignUp', '[DEBUG] register after signUp', {
+            email,
+            hasUser: Boolean(data.user),
+            hasSession: Boolean(data.session),
+            userId: data.user?.id ?? null,
+          });
+          // #endregion
           
           const needsEmailConfirmation = !data.session;
           
@@ -200,6 +303,13 @@ export const useAuthStore = create<AuthState>()(
             const { error: profileError } = await supabase
               .from('profiles')
               .upsert(profileData);
+            // #region debug-point AGR:register-after-profile-upsert
+            reportAuthDebug('AGR', 'authStore:register:afterProfileUpsert', '[DEBUG] register after profile upsert', {
+              email,
+              userId: data.user.id,
+              profileError: profileError?.message ?? null,
+            });
+            // #endregion
               
             if (profileError) {
               console.error('Profile creation error:', profileError);
@@ -209,11 +319,24 @@ export const useAuthStore = create<AuthState>()(
 
           if (data.session?.user) {
             const profile = await fetchProfileWithRetry(data.session.user.id);
+            // #region debug-point AGR:register-after-profile-fetch
+            reportAuthDebug('AGR', 'authStore:register:afterProfileFetch', '[DEBUG] register after profile fetch', {
+              email,
+              userId: data.session.user.id,
+              hasProfile: Boolean(profile),
+            });
+            // #endregion
             set({ user: profile, isAuthenticated: true });
           }
           
           return { error: null, needsEmailConfirmation };
         } catch (error) {
+          // #region debug-point AGR:register-catch
+          reportAuthDebug('AGR', 'authStore:register:catch', '[DEBUG] register catch', {
+            email,
+            errorMessage: error instanceof Error ? error.message : String(error),
+          });
+          // #endregion
           if (isRecoverableAuthError(error)) {
             await recoverBrokenAuthState('registerWithEmail', error);
           }
