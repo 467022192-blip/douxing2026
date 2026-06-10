@@ -4,10 +4,24 @@ import type { TripPlanAttractionItem, TripPlanOption } from '../../../types';
 type GuideResultCardProps = {
   index: number;
   option: TripPlanOption;
-  onOpenDetail: (id: string) => void;
+  resolvingAttractionKey?: string | null;
+  onOpenDetail: (item: TripPlanAttractionItem) => void;
 };
 
-function AttractionPill({ item, onOpenDetail }: { item: TripPlanAttractionItem; onOpenDetail: (id: string) => void }) {
+const buildAttractionKey = (item: TripPlanAttractionItem) => [item.name, item.province || '', item.city || ''].join('|');
+
+function AttractionPill({
+  item,
+  resolvingAttractionKey,
+  onOpenDetail
+}: {
+  item: TripPlanAttractionItem;
+  resolvingAttractionKey?: string | null;
+  onOpenDetail: (item: TripPlanAttractionItem) => void;
+}) {
+  const attractionKey = buildAttractionKey(item);
+  const isResolving = resolvingAttractionKey === attractionKey;
+
   return (
     <div className="rounded-2xl bg-gray-50 px-3 py-3">
       <div className="flex items-start justify-between gap-3">
@@ -17,13 +31,14 @@ function AttractionPill({ item, onOpenDetail }: { item: TripPlanAttractionItem; 
             <p className="mt-1 text-xs text-gray-500">{[item.province, item.city].filter(Boolean).join(' · ')}</p>
           )}
         </div>
-        {item.matchedAttractionId ? (
+        {item.name ? (
           <button
             type="button"
-            onClick={() => onOpenDetail(item.matchedAttractionId!)}
-            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-emerald-700 shadow-sm ring-1 ring-emerald-100"
+            onClick={() => onOpenDetail(item)}
+            disabled={isResolving}
+            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-emerald-700 shadow-sm ring-1 ring-emerald-100 disabled:cursor-wait disabled:opacity-70"
           >
-            详情
+            {isResolving ? '查询中' : '详情'}
             <ChevronRight className="h-3 w-3" />
           </button>
         ) : null}
@@ -33,7 +48,7 @@ function AttractionPill({ item, onOpenDetail }: { item: TripPlanAttractionItem; 
   );
 }
 
-export default function GuideResultCard({ index, option, onOpenDetail }: GuideResultCardProps) {
+export default function GuideResultCard({ index, option, resolvingAttractionKey, onOpenDetail }: GuideResultCardProps) {
   return (
     <section className="rounded-[28px] border border-white/80 bg-white p-4 shadow-[0_16px_40px_rgba(15,23,42,0.06)] ring-1 ring-gray-100">
       <div className="flex items-start justify-between gap-4">
@@ -68,6 +83,7 @@ export default function GuideResultCard({ index, option, onOpenDetail }: GuideRe
                 <AttractionPill
                   key={`${option.id}-${day.day}-${attractionIndex}-${item.name}`}
                   item={item}
+                  resolvingAttractionKey={resolvingAttractionKey}
                   onOpenDetail={onOpenDetail}
                 />
               ))}

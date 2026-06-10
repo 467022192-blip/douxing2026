@@ -8,8 +8,14 @@ import GuidePageHeader from './components/GuidePageHeader';
 import GuidePopularSection from './components/GuidePopularSection';
 import GuideResultCard from './components/GuideResultCard';
 import { useAuthStore } from '../../stores/authStore';
-import { generateAiTripPlans, getMyAiTripPlans, getPopularAiTripPlans, saveAiTripPlan } from '../../services/aiTripPlannerService';
-import type { PublicPopularAiTripPlanSummary, SavedAiTripPlan, TripPlanResult } from '../../types';
+import {
+  generateAiTripPlans,
+  getMyAiTripPlans,
+  getPopularAiTripPlans,
+  resolveTripPlanAttraction,
+  saveAiTripPlan
+} from '../../services/aiTripPlannerService';
+import type { PublicPopularAiTripPlanSummary, SavedAiTripPlan, TripPlanAttractionItem, TripPlanResult } from '../../types';
 import { trackEvent } from '../../utils/monitoring';
 
 const EXAMPLE_QUERIES = [
@@ -49,6 +55,9 @@ type GeneratedSnapshot = {
   query: string;
   result: TripPlanResult;
 };
+
+const buildAttractionKey = (item: Pick<TripPlanAttractionItem, 'name' | 'city' | 'province'>) =>
+  [item.name, item.province || '', item.city || ''].join('|');
 
 const buildSavedGuideListItem = (
   item: SavedAiTripPlan,
@@ -121,6 +130,7 @@ export default function AITripPlanner() {
   const [popularSavedPlans, setPopularSavedPlans] = useState<SavedAiTripPlan[]>([]);
   const [publicPopularPlans, setPublicPopularPlans] = useState<PublicPopularAiTripPlanSummary[]>([]);
   const [favoritePopularIds, setFavoritePopularIds] = useState<string[]>([]);
+  const [resolvingAttractionKey, setResolvingAttractionKey] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const activeRequestIdRef = useRef(0);
@@ -406,9 +416,25 @@ export default function AITripPlanner() {
     setErrorMessage('');
   };
 
-  const handleOpenDetail = (id: string) => {
-    navigate(`/attraction/${id}`);
-  };
+  const handleOpenDetail = useCallback(async (item: TripPlanAttractionItem) => {
+    const nextKey = buildAttractionKey(item);
+    setResolvingAttractionKey(nextKey);
+    try {
+      const attractionId = await resolveTripPlanAttraction(item);
+      navigate(`/attraction/${attractionId}`);
+      trackEvent('guide_attraction_detail_open', {
+        attractionName: item.name,
+        source: item.matchedAttractionId ? 'legacy-match' : 'lazy-resolve'
+      });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '暂未匹配到景区详情，请稍后再试');
+      trackEvent('guide_attraction_detail_resolve_fail', {
+        attractionName: item.name
+      });
+    } finally {
+      setResolvingAttractionKey(null);
+    }
+  }, [navigate]);
 
   const togglePopularFavorite = useCallback((id: string) => {
     setFavoritePopularIds((current) => {
@@ -539,7 +565,13 @@ export default function AITripPlanner() {
 
             <div className="mt-4 space-y-4">
               {result.options.map((option, index) => (
-                <GuideResultCard key={option.id} index={index} option={option} onOpenDetail={handleOpenDetail} />
+                <GuideResultCard
+                  key={option.id}
+                  index={index}
+                  option={option}
+                  resolvingAttractionKey={resolvingAttractionKey}
+                  onOpenDetail={handleOpenDetail}
+                />
               ))}
             </div>
           </section>

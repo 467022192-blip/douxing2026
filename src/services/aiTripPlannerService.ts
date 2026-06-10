@@ -11,6 +11,7 @@ import type {
   ResolvedAiTripPlanDetail,
   SavedAiTripPlan,
   SavedAiTripPlanSummary,
+  TripPlanAttractionItem,
   TripPlanResult
 } from '../types';
 
@@ -33,6 +34,10 @@ const parseJsonResponse = async <T>(response: Response, fallbackMessage: string)
 };
 
 export const isPublicPopularTripPlanId = (id: string) => id.startsWith('popular-');
+const attractionResolveCache = new Map<string, string>();
+
+const buildAttractionResolveKey = (item: Pick<TripPlanAttractionItem, 'name' | 'city' | 'province'>) =>
+  [item.name.trim(), item.province?.trim() || '', item.city?.trim() || ''].join('|');
 
 const buildPopularTripPlanSummaryFallback = (): PublicPopularAiTripPlanSummary[] =>
   POPULAR_TRIP_PLANS.map((item) => ({
@@ -118,4 +123,25 @@ export const resolveAiTripPlanDetail = async (id: string): Promise<ResolvedAiTri
     source: 'private',
     source_label: '已保存攻略'
   };
+};
+
+export const resolveTripPlanAttraction = async (item: TripPlanAttractionItem): Promise<string> => {
+  if (item.matchedAttractionId) {
+    return item.matchedAttractionId;
+  }
+
+  const key = buildAttractionResolveKey(item);
+  const cachedId = attractionResolveCache.get(key);
+  if (cachedId) {
+    return cachedId;
+  }
+
+  const params = new URLSearchParams({ name: item.name });
+  if (item.city) params.set('city', item.city);
+  if (item.province) params.set('province', item.province);
+
+  const response = await fetch(`/api/attractions/resolve?${params.toString()}`);
+  const payload = await parseJsonResponse<{ id: string }>(response, '暂未匹配到景区详情，请稍后再试');
+  attractionResolveCache.set(key, payload.id);
+  return payload.id;
 };

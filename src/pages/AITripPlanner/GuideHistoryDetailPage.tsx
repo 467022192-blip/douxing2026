@@ -3,9 +3,9 @@ import dayjs from 'dayjs';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import GuideResultCard from './components/GuideResultCard';
-import { isPublicPopularTripPlanId, resolveAiTripPlanDetail } from '../../services/aiTripPlannerService';
+import { isPublicPopularTripPlanId, resolveAiTripPlanDetail, resolveTripPlanAttraction } from '../../services/aiTripPlannerService';
 import { useAuthStore } from '../../stores/authStore';
-import type { ResolvedAiTripPlanDetail } from '../../types';
+import type { ResolvedAiTripPlanDetail, TripPlanAttractionItem } from '../../types';
 
 type DetailState = 'loading' | 'ready' | 'unavailable' | 'error';
 
@@ -25,6 +25,8 @@ export default function GuideHistoryDetailPage() {
   const { isAuthenticated } = useAuthStore();
   const [item, setItem] = useState<ResolvedAiTripPlanDetail | null>(null);
   const [viewState, setViewState] = useState<DetailState>('loading');
+  const [detailError, setDetailError] = useState('');
+  const [resolvingAttractionKey, setResolvingAttractionKey] = useState<string | null>(null);
   const isPublicGuide = Boolean(id && isPublicPopularTripPlanId(id));
   const backTo =
     typeof location.state === 'object' && location.state && 'backTo' in location.state && typeof location.state.backTo === 'string'
@@ -64,8 +66,18 @@ export default function GuideHistoryDetailPage() {
     return dayjs(item.created_at).format('M月D日 HH:mm');
   }, [item?.created_at]);
 
-  const handleOpenAttraction = (attractionId: string) => {
-    navigate(`/attraction/${attractionId}`);
+  const handleOpenAttraction = async (attraction: TripPlanAttractionItem) => {
+    const nextKey = [attraction.name, attraction.province || '', attraction.city || ''].join('|');
+    setResolvingAttractionKey(nextKey);
+    setDetailError('');
+    try {
+      const attractionId = await resolveTripPlanAttraction(attraction);
+      navigate(`/attraction/${attractionId}`);
+    } catch (error) {
+      setDetailError(error instanceof Error ? error.message : '暂未匹配到景区详情，请稍后再试');
+    } finally {
+      setResolvingAttractionKey(null);
+    }
   };
 
   if (!isAuthenticated && !isPublicGuide) return null;
@@ -124,6 +136,12 @@ export default function GuideHistoryDetailPage() {
           </div>
         ) : null}
 
+        {detailError ? (
+          <div className="mt-6 rounded-[28px] border border-amber-100 bg-amber-50 px-4 py-4 text-sm leading-6 text-amber-700 shadow-sm">
+            {detailError}
+          </div>
+        ) : null}
+
         {viewState === 'ready' && item ? (
           <section className="mt-6">
             <div className="rounded-[28px] bg-white px-5 py-5 shadow-sm ring-1 ring-gray-100">
@@ -136,7 +154,13 @@ export default function GuideHistoryDetailPage() {
 
             <div className="mt-4 space-y-4">
               {item.result_json.options.map((option, index) => (
-                <GuideResultCard key={option.id} index={index} option={option} onOpenDetail={handleOpenAttraction} />
+                <GuideResultCard
+                  key={option.id}
+                  index={index}
+                  option={option}
+                  resolvingAttractionKey={resolvingAttractionKey}
+                  onOpenDetail={handleOpenAttraction}
+                />
               ))}
             </div>
           </section>

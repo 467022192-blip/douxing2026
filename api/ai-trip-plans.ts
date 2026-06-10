@@ -1,13 +1,3 @@
-import { createClient } from '@supabase/supabase-js';
-
-type AttractionRow = {
-  id: string;
-  name: string;
-  province: string;
-  city: string;
-  address: string | null;
-};
-
 type LlmAttraction = {
   name?: string;
   summary?: string;
@@ -35,21 +25,6 @@ type OpenAiResponse = {
     };
   }>;
 };
-
-type AttractionCache = {
-  data: AttractionRow[];
-  expiresAt: number;
-};
-
-const ATTRACTION_CACHE_TTL_MS = 10 * 60 * 1000;
-let attractionCache: AttractionCache | null = null;
-
-const normalizeName = (value: string) =>
-  value
-    .trim()
-    .toLowerCase()
-    .replace(/[·•\s（）()\-_,，。]/g, '')
-    .replace(/(风景名胜区|风景区|旅游区|度假区|景区|景点|公园|古城|博物馆|遗址|海滩|沙滩)$/g, '');
 
 const normalizeResponseText = (text: string) => {
   const trimmed = text.trim();
@@ -218,7 +193,7 @@ const isRetryableJsonParseError = (error: unknown) => {
   );
 };
 
-const buildMappedOptions = (parsed: { options: LlmOption[] }, attractions: AttractionRow[]) =>
+const buildMappedOptions = (parsed: { options: LlmOption[] }) =>
   parsed.options.map((option, optionIndex) => ({
     id: `plan-${optionIndex + 1}`,
     title: option.title?.trim() || `推荐方案 ${optionIndex + 1}`,
@@ -235,8 +210,7 @@ const buildMappedOptions = (parsed: { options: LlmOption[] }, attractions: Attra
                 name: item.name!.trim(),
                 summary: item.summary?.trim() || '',
                 city: item.city?.trim() || '',
-                province: item.province?.trim() || '',
-                ...matchAttraction(item, attractions)
+                province: item.province?.trim() || ''
               }))
           }))
           .filter((day) => day.attractions.length > 0)
@@ -252,73 +226,6 @@ const hasRequestedDayCountMismatch = (
 ) => {
   if (!requestedDays) return false;
   return options.some((option) => option.days.length !== requestedDays);
-};
-
-const getAttractionsForMatching = async (supabaseUrl: string, supabaseAnonKey: string) => {
-  const now = Date.now();
-  if (attractionCache && attractionCache.expiresAt > now) {
-    return {
-      data: attractionCache.data,
-      cacheHit: true
-    };
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
-  const { data, error } = await supabase
-    .from('attractions')
-    .select('id,name,province,city,address')
-    .limit(3000);
-
-  if (error) {
-    throw new Error(`景区数据读取失败：${error.message}`);
-  }
-
-  attractionCache = {
-    data: (data || []) as AttractionRow[],
-    expiresAt: now + ATTRACTION_CACHE_TTL_MS
-  };
-
-  return {
-    data: attractionCache.data,
-    cacheHit: false
-  };
-};
-
-const scoreAttractionMatch = (item: LlmAttraction, attraction: AttractionRow) => {
-  const itemName = normalizeName(item.name || '');
-  const attractionName = normalizeName(attraction.name);
-  if (!itemName || !attractionName) return 0;
-
-  let score = 0;
-  if (itemName === attractionName) score += 90;
-  else if (attractionName.includes(itemName) || itemName.includes(attractionName)) score += 70;
-
-  const itemCity = normalizeName(item.city || '');
-  const itemProvince = normalizeName(item.province || '');
-  if (itemCity && normalizeName(attraction.city) === itemCity) score += 15;
-  if (itemProvince && normalizeName(attraction.province) === itemProvince) score += 10;
-
-  return score;
-};
-
-const matchAttraction = (item: LlmAttraction, attractions: AttractionRow[]) => {
-  let bestMatch: AttractionRow | null = null;
-  let bestScore = 0;
-
-  for (const attraction of attractions) {
-    const score = scoreAttractionMatch(item, attraction);
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = attraction;
-    }
-  }
-
-  if (!bestMatch || bestScore < 70) return null;
-  return {
-    matchedAttractionId: bestMatch.id,
-    matchedAttractionName: bestMatch.name,
-    matchedScore: bestScore
-  };
 };
 
 const json = (res: any, status: number, payload: unknown) => {
@@ -386,15 +293,9 @@ export default async function handler(req: any, res: any) {
   const openAiBaseUrl = (process.env.OPENAI_BASE_URL || '').trim().replace(/\/+$/, '');
   const openAiApiKey = (process.env.OPENAI_API_KEY || '').trim();
   const modelName = (process.env.MODEL_NAME || '').trim();
-  const supabaseUrl = (process.env.VITE_SUPABASE_URL || '').trim().replace(/\/rest\/v1\/?$/, '');
-  const supabaseAnonKey = (process.env.VITE_SUPABASE_ANON_KEY || '').trim();
 
   if (!openAiBaseUrl || !openAiApiKey || !modelName) {
     return json(res, 503, { error: 'AI 服务暂未配置，请补充 OPENAI_BASE_URL、OPENAI_API_KEY、MODEL_NAME。' });
-  }
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return json(res, 503, { error: 'Supabase 服务暂未配置，无法完成景点匹配。' });
   }
 
   let body: { query?: string } = {};
@@ -427,9 +328,6 @@ export default async function handler(req: any, res: any) {
       generationConfig.maxTokens
     );
     modelMs += firstCompletion.durationMs;
-
-    const matchStart = Date.now();
-    const attractionData = await getAttractionsForMatching(supabaseUrl, supabaseAnonKey);
     let parsed: { options: LlmOption[] };
 
     try {
@@ -453,7 +351,7 @@ export default async function handler(req: any, res: any) {
       parsed = parseContent(retryCompletion.content);
     }
 
-    let options = buildMappedOptions(parsed, attractionData.data);
+    let options = buildMappedOptions(parsed);
 
     if (
       hasIncompleteStructure(options) ||
@@ -471,7 +369,7 @@ export default async function handler(req: any, res: any) {
       );
       modelMs += structureRetry.durationMs;
       parsed = parseContent(structureRetry.content);
-      options = buildMappedOptions(parsed, attractionData.data);
+      options = buildMappedOptions(parsed);
 
       if (
         hasIncompleteStructure(options) ||
@@ -481,14 +379,13 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    const matchMs = Date.now() - matchStart;
+    const matchMs = 0;
     const totalMs = Date.now() - totalStart;
 
     console.info('[guide-ai-trip-plans]', {
       totalMs,
       modelMs,
-      matchMs,
-      cacheHit: attractionData.cacheHit
+      matchMs
     });
 
     return json(res, 200, {
@@ -499,7 +396,7 @@ export default async function handler(req: any, res: any) {
         totalMs,
         modelMs,
         matchMs,
-        cacheHit: attractionData.cacheHit,
+        cacheHit: false,
         retried
       }
     });
