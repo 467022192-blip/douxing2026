@@ -44,22 +44,6 @@ type AttractionCache = {
 const ATTRACTION_CACHE_TTL_MS = 10 * 60 * 1000;
 let attractionCache: AttractionCache | null = null;
 
-const reportGuideDebug = (hypothesisId: string, location: string, msg: string, data: Record<string, unknown>) => {
-  fetch('http://127.0.0.1:7777/event', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      sessionId: 'guide-structure-error',
-      runId: 'pre-fix',
-      hypothesisId,
-      location,
-      msg,
-      data,
-      ts: Date.now(),
-    }),
-  }).catch(() => {});
-};
-
 const normalizeName = (value: string) =>
   value
     .trim()
@@ -212,13 +196,6 @@ const parseContent = (content: string): { options: LlmOption[] } => {
   }
 
   const errorMessage = lastError instanceof Error ? lastError.message : '未知解析错误';
-  // #region debug-point G:parse-content:failed
-  reportGuideDebug('G', 'ai-trip-plans:parseContent:failed', '[DEBUG] parse content failed', {
-    candidatePreview: candidate.slice(0, 1800),
-    sanitizedPreview: sanitizeLooseJson(candidate).slice(0, 1800),
-    errorMessage,
-  });
-  // #endregion
   throw new Error(`AI 返回的 JSON 格式不合法：${errorMessage}`);
 };
 
@@ -447,12 +424,6 @@ export default async function handler(req: any, res: any) {
       }
 
       retried = true;
-      // #region debug-point G:json-retry
-      reportGuideDebug('G', 'ai-trip-plans:json-retry', '[DEBUG] retrying after invalid json', {
-        requestedDays: generationConfig.requestedDays,
-        errorMessage: error instanceof Error ? error.message : String(error),
-      });
-      // #endregion
 
       const retryCompletion = await requestCompletion(
         openAiBaseUrl,
@@ -466,64 +437,9 @@ export default async function handler(req: any, res: any) {
       parsed = parseContent(retryCompletion.content);
     }
 
-    // #region debug-point G:parsed-options
-    reportGuideDebug('G', 'ai-trip-plans:parsed-options', '[DEBUG] parsed guide options', {
-      retried,
-      requestedDays: generationConfig.requestedDays,
-      finishReason: firstCompletion.finishReason,
-      optionCount: parsed.options.length,
-      optionShapes: parsed.options.map((option, index) => ({
-        index,
-        title: option.title ?? null,
-        daysCount: Array.isArray(option.days) ? option.days.length : null,
-        attractionsPerDay: Array.isArray(option.days)
-          ? option.days.map((day, dayIndex) => ({
-              dayIndex,
-              title: day.title ?? null,
-              attractionsCount: Array.isArray(day.attractions) ? day.attractions.length : null,
-              attractionNames: Array.isArray(day.attractions)
-                ? day.attractions.slice(0, 3).map((item) => item?.name ?? null)
-                : null,
-            }))
-          : null,
-      })),
-    });
-    // #endregion
-
     let options = buildMappedOptions(parsed, attractionData.data);
 
-    // #region debug-point G:mapped-options
-    reportGuideDebug('G', 'ai-trip-plans:mapped-options', '[DEBUG] mapped guide options', {
-      retried,
-      optionCount: options.length,
-      optionShapes: options.map((option, index) => ({
-        index,
-        title: option.title,
-        daysCount: option.days.length,
-        attractionsPerDay: option.days.map((day) => ({
-          day: day.day,
-          title: day.title,
-          attractionsCount: day.attractions.length,
-          attractionNames: day.attractions.slice(0, 3).map((item) => item.name),
-        })),
-      })),
-    });
-    // #endregion
-
     if (hasIncompleteStructure(options) || firstCompletion.finishReason === 'length') {
-      // #region debug-point G:structure-incomplete
-      reportGuideDebug('G', 'ai-trip-plans:structure-incomplete', '[DEBUG] guide structure incomplete', {
-        retried,
-        requestedDays: generationConfig.requestedDays,
-        finishReason: firstCompletion.finishReason,
-        optionShapes: options.map((option, index) => ({
-          index,
-          title: option.title,
-          daysCount: option.days.length,
-        })),
-      });
-      // #endregion
-
       retried = true;
       const structureRetry = await requestCompletion(
         openAiBaseUrl,
@@ -536,22 +452,6 @@ export default async function handler(req: any, res: any) {
       modelMs += structureRetry.durationMs;
       parsed = parseContent(structureRetry.content);
       options = buildMappedOptions(parsed, attractionData.data);
-
-      // #region debug-point G:structure-retry
-      reportGuideDebug('G', 'ai-trip-plans:structure-retry', '[DEBUG] guide structure retry result', {
-        requestedDays: generationConfig.requestedDays,
-        finishReason: structureRetry.finishReason,
-        optionShapes: options.map((option, index) => ({
-          index,
-          title: option.title,
-          daysCount: option.days.length,
-          attractionsPerDay: option.days.map((day) => ({
-            day: day.day,
-            attractionsCount: day.attractions.length,
-          })),
-        })),
-      });
-      // #endregion
 
       if (hasIncompleteStructure(options)) {
         return json(res, 502, { error: 'AI 返回的行程结构不完整，请重试一次。' });
