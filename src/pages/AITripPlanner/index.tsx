@@ -19,7 +19,7 @@ import type { PublicPopularAiTripPlanSummary, SavedAiTripPlan, TripPlanAttractio
 import { trackEvent } from '../../utils/monitoring';
 
 const EXAMPLE_QUERIES = [
-  '5天4夜的行程，一家三口，有个6岁的小孩，想去海边，从北京出发',
+  '5天的行程，一家三口，有个6岁的小孩，想去海边，从北京出发',
   '周末两天一夜，适合上海出发的轻松亲子游，不想太赶'
 ];
 
@@ -130,7 +130,7 @@ export default function AITripPlanner() {
   const location = useLocation();
   const { isAuthenticated, user } = useAuthStore();
 
-  const [query, setQuery] = useState(EXAMPLE_QUERIES[0]);
+  const [query, setQuery] = useState('');
   const [result, setResult] = useState<TripPlanResult | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [generateState, setGenerateState] = useState<GenerateState>('idle');

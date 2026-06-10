@@ -50,13 +50,17 @@ export default function GuideTabIcon({ active = false, className = '' }: GuideTa
       </div>
 
       <span
-        className={`absolute right-[-5px] top-[-4px] rounded-full px-[4px] py-[1px] text-[7px] font-semibold leading-none shadow-sm transition-all ${
+        className={`absolute right-[-15px] top-[-6px] inline-flex min-w-[18px] items-center justify-center px-[5px] py-[1.5px] text-[8px] leading-none shadow-[0_4px_12px_rgba(124,58,237,0.26)] transition-all ${
           active
-            ? 'animate-pulse bg-violet-500 text-white'
-            : 'bg-violet-100 text-violet-600'
+            ? 'animate-pulse bg-gradient-to-r from-fuchsia-500 via-violet-500 to-sky-500 text-white font-bold'
+            : 'bg-gradient-to-r from-violet-100 via-fuchsia-50 to-cyan-100 text-violet-700 font-extrabold'
         }`}
+        style={{
+          clipPath: 'polygon(14% 0%, 100% 0%, 100% 72%, 86% 100%, 0% 100%, 0% 28%)',
+        }}
       >
-        AI
+        <span className="absolute inset-[1px] opacity-40" aria-hidden="true" />
+        <span className="relative tracking-[0.015em]">AI</span>
       </span>
     </div>
   );

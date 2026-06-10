@@ -23,7 +23,7 @@ export default function GuideComposer({
         <textarea
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="例如：5天4夜的行程，一家三口，有个6岁的小孩，想去海边，从北京出发"
+          placeholder="输入你的需求，比如出行天数、景点偏好、出发地等需求"
           className="h-48 w-full resize-none rounded-[22px] bg-gray-50 px-4 py-4 pr-14 text-sm leading-6 text-gray-800 outline-none ring-1 ring-transparent transition focus:bg-white focus:ring-2 focus:ring-emerald-300"
         />
         <button

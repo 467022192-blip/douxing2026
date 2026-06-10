@@ -21,9 +21,9 @@ export default function GuidePageHeader({ onOpenHistory }: GuidePageHeaderProps)
       </div>
 
       <div className="mt-4 text-center">
-        <h1 className="text-[28px] font-semibold tracking-tight text-gray-800">旅行攻略智能生成</h1>
+        <h1 className="text-[28px] font-semibold tracking-tight text-gray-800">Hi，我是你的智能出行助理</h1>
         <p className="mt-2 text-[13px] leading-5 text-gray-500 whitespace-nowrap">
-          说出你的出行天数、景点偏好、出发地等需求
+          适合的才是最好的，让足迹从这里开始
         </p>
       </div>
     </header>
