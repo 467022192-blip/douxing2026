@@ -238,6 +238,14 @@ const buildMappedOptions = (parsed: { options: LlmOption[] }, attractions: Attra
 const hasIncompleteStructure = (options: Array<{ days: Array<{ attractions: Array<unknown> }> }>) =>
   options.some((option) => option.days.length === 0 || option.days.some((day) => day.attractions.length === 0));
 
+const hasRequestedDayCountMismatch = (
+  options: Array<{ days: Array<unknown> }>,
+  requestedDays: number | null
+) => {
+  if (!requestedDays) return false;
+  return options.some((option) => option.days.length !== requestedDays);
+};
+
 const getAttractionsForMatching = async (supabaseUrl: string, supabaseAnonKey: string) => {
   const now = Date.now();
   if (attractionCache && attractionCache.expiresAt > now) {
@@ -439,7 +447,11 @@ export default async function handler(req: any, res: any) {
 
     let options = buildMappedOptions(parsed, attractionData.data);
 
-    if (hasIncompleteStructure(options) || firstCompletion.finishReason === 'length') {
+    if (
+      hasIncompleteStructure(options) ||
+      hasRequestedDayCountMismatch(options, generationConfig.requestedDays) ||
+      firstCompletion.finishReason === 'length'
+    ) {
       retried = true;
       const structureRetry = await requestCompletion(
         openAiBaseUrl,
@@ -453,7 +465,10 @@ export default async function handler(req: any, res: any) {
       parsed = parseContent(structureRetry.content);
       options = buildMappedOptions(parsed, attractionData.data);
 
-      if (hasIncompleteStructure(options)) {
+      if (
+        hasIncompleteStructure(options) ||
+        hasRequestedDayCountMismatch(options, generationConfig.requestedDays)
+      ) {
         return json(res, 502, { error: 'AI 返回的行程结构不完整，请重试一次。' });
       }
     }
