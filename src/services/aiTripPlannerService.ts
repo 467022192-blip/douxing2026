@@ -140,7 +140,7 @@ export const resolveTripPlanAttraction = async (item: TripPlanAttractionItem): P
   if (item.city) params.set('city', item.city);
   if (item.province) params.set('province', item.province);
 
-  const response = await fetch(`/api/attractions/resolve?${params.toString()}`);
+  const response = await fetch(`/api/resolve-attraction?${params.toString()}`);
   const payload = await parseJsonResponse<{ id: string }>(response, '暂未匹配到景区详情，请稍后再试');
   attractionResolveCache.set(key, payload.id);
   return payload.id;
