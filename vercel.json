@@ -5,6 +5,10 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/resolve-attraction",
+      "destination": "/api/resolve-attraction"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
