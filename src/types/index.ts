@@ -1,3 +1,5 @@
+import type { PostImageAsset } from '../utils/imageVariants';
+
 // 景区类型
 export interface Attraction {
   id: string;
@@ -15,6 +17,7 @@ export interface Attraction {
   latitude: number;
   longitude: number;
   image_url?: string;
+  image_url_min?: string;
   created_at?: string;
 }
 
@@ -37,7 +40,7 @@ export interface Post {
   user_id: string;
   attraction_id: string;
   content?: string;
-  images: string[];
+  images: PostImageAsset[];
   is_private: boolean;
   created_at?: string;
   updated_at?: string;

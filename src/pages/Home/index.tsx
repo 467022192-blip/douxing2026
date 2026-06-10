@@ -10,6 +10,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useAttractionSearch } from '../../hooks/useAttractionSearch';
 import type { Attraction, UserCheckin } from '../../types';
 import TopSearchStatsBar from '../../components/TopSearchStatsBar';
+import { buildStorageRenderUrl, getAttractionListImageUrl } from '../../utils/imageVariants';
 
 export default function Home() {
   const navigate = useNavigate();
@@ -154,17 +155,22 @@ export default function Home() {
     );
   };
 
-  // 辅助函数：优化图片加载大小，将 1200 宽度的图片压缩到 600，降低 quality 到 80，兼顾加载速度与图片质量
   const imagePlaceholder =
     'data:image/svg+xml;charset=utf-8,' +
     encodeURIComponent(
       `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#e5f7f0" offset="0"/><stop stop-color="#eaf2ff" offset="1"/></linearGradient></defs><rect width="600" height="400" fill="url(#g)"/><path d="M0 310 C 90 260, 180 360, 300 310 S 510 260, 600 310 V 400 H 0 Z" fill="#d7efe6" opacity="0.9"/><circle cx="470" cy="120" r="46" fill="#cfe7ff"/><text x="50%" y="52%" dominant-baseline="middle" text-anchor="middle" fill="#6b7280" font-size="20" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial">图片加载中</text></svg>`
     );
 
-  const getOptimizedImageUrl = (url: string) => {
-    if (!url) return imagePlaceholder;
-    if (url.includes('images.unsplash.com')) return imagePlaceholder;
-    return url.replace(/w=\d+/, 'w=600').replace(/quality=\d+/, 'quality=80');
+  const getCardImageSources = (attraction: Attraction) => {
+    const original = attraction.image_url || imagePlaceholder;
+    const primary = getAttractionListImageUrl(attraction.image_url, attraction.image_url_min) || imagePlaceholder;
+    const fallback = buildStorageRenderUrl(attraction.image_url || '', 720, 78) || original;
+
+    if (!primary || primary.includes('images.unsplash.com')) {
+      return { primary: imagePlaceholder, fallback: imagePlaceholder, original: imagePlaceholder };
+    }
+
+    return { primary, fallback, original };
   };
 
   return (
@@ -274,7 +280,11 @@ export default function Home() {
                 handleCheckin: (attraction: Attraction, status: 'visited' | 'want_to_visit') => Promise<void>;
                 removeCheckin: (id: string) => Promise<void>;
                 highlightText: (text: string, query: string) => ReactNode;
-                getOptimizedImageUrl: (url: string) => string;
+                getCardImageSources: (attraction: Attraction) => {
+                  primary: string;
+                  fallback: string;
+                  original: string;
+                };
                 navigate: ReturnType<typeof useNavigate>;
               };
 
@@ -285,7 +295,7 @@ export default function Home() {
                 handleCheckin,
                 removeCheckin,
                 highlightText,
-                getOptimizedImageUrl,
+                getCardImageSources,
                 navigate
               };
 
@@ -301,6 +311,7 @@ export default function Home() {
                 const { index, style, ...rest } = props;
                 const attraction = rest.attractions[index];
                 if (!attraction || !attraction.id) return null;
+                const imageSources = rest.getCardImageSources(attraction);
 
                 const checkin = rest.getCheckinStatus(attraction.id);
                 const isVisited = checkin?.status === 'visited';
@@ -313,12 +324,20 @@ export default function Home() {
                       onClick={() => rest.navigate(`/attraction/${attraction.id}`, { state: { attraction } })}
                     >
                       <img
-                        src={rest.getOptimizedImageUrl(attraction.image_url)}
+                        src={imageSources.primary}
                         alt={attraction.name}
                         loading="lazy"
                         className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
+                          if (target.src !== imageSources.fallback) {
+                            target.src = imageSources.fallback;
+                            return;
+                          }
+                          if (target.src !== imageSources.original) {
+                            target.src = imageSources.original;
+                            return;
+                          }
                           if (target.src !== imagePlaceholder) {
                             target.src = imagePlaceholder;
                           }

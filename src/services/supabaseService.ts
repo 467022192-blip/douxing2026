@@ -12,6 +12,8 @@ import type {
   TripPlanResult
 } from '../types';
 import type { Database } from '../types/supabase';
+import type { PostImageAsset } from '../utils/imageVariants';
+import { normalizePostImages } from '../utils/imageVariants';
 
 const supabase = supabaseClient;
 const publicSupabase = createClient<Database>(env.supabaseUrl, env.supabaseAnonKey, {
@@ -40,6 +42,23 @@ const formatSupabaseError = (error: unknown, fallbackMessage: string) => {
   }
 
   return new Error(fallbackMessage);
+};
+
+const buildStorageFilePath = (userId: string, fileName: string) => `posts/${userId}/${Date.now()}-${fileName}`;
+
+const uploadPublicFile = async (bucket: string, filePath: string, file: File) => {
+  const { error: uploadError } = await supabase.storage.from(bucket).upload(filePath, file, {
+    upsert: true,
+    contentType: file.type || undefined,
+  });
+
+  if (uploadError) throw uploadError;
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from(bucket).getPublicUrl(filePath);
+
+  return publicUrl;
 };
 
 const toSavedAiTripPlan = (
@@ -454,6 +473,7 @@ export const getPosts = async (page = 1, pageSize = 10): Promise<Post[]> => {
     return {
       ...post,
       attraction: attractionsMap[post.attraction_id] || null,
+      images: normalizePostImages(post.images),
       likes_count: getCount(postRecord.likes),
       comments_count: getCount(postRecord.comments),
     };
@@ -500,6 +520,7 @@ export const getUserPosts = async (userId: string): Promise<Post[]> => {
   const formattedData = data.map((post) => ({
     ...post,
     attraction: attractionsMap[post.attraction_id] || null,
+    images: normalizePostImages(post.images),
   }));
 
   return formattedData as unknown as Post[];
@@ -511,6 +532,7 @@ export const getUserPosts = async (userId: string): Promise<Post[]> => {
 export const createPost = async (post: Omit<Post, 'id' | 'created_at' | 'updated_at' | 'likes_count' | 'comments_count' | 'is_liked'>) => {
   const insertData: Database['public']['Tables']['posts']['Insert'] = {
     ...post,
+    images: post.images as unknown as Database['public']['Tables']['posts']['Insert']['images'],
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   };
@@ -540,7 +562,7 @@ export const createPost = async (post: Omit<Post, 'id' | 'created_at' | 'updated
     }
   }
   
-  return { ...data, attraction } as unknown as Post;
+  return { ...data, attraction, images: normalizePostImages(data.images) } as unknown as Post;
 };
 
 /**
@@ -671,22 +693,23 @@ export const getLikesCount = async (postId: string): Promise<number> => {
 // ==================== 文件上传 ====================
 
 /**
- * 上传图片到 Supabase Storage
+ * 上传动态图片原图与 min 图
  */
-export const uploadImage = async (file: File, userId: string): Promise<string> => {
-  const fileExt = file.name.split('.').pop();
-  const fileName = `${userId}/${Date.now()}.${fileExt}`;
-  const filePath = `posts/${fileName}`;
+export const uploadPostImageAsset = async (
+  originalFile: File,
+  minFile: File,
+  userId: string
+): Promise<PostImageAsset> => {
+  const originalPath = buildStorageFilePath(userId, originalFile.name);
+  const minPath = buildStorageFilePath(userId, minFile.name);
 
-  const { error: uploadError } = await supabase.storage
-    .from('posts')
-    .upload(filePath, file);
+  const [original, min] = await Promise.all([
+    uploadPublicFile('posts', originalPath, originalFile),
+    uploadPublicFile('posts', minPath, minFile),
+  ]);
 
-  if (uploadError) throw uploadError;
-
-  const { data: { publicUrl } } = supabase.storage
-    .from('posts')
-    .getPublicUrl(filePath);
-
-  return publicUrl;
+  return {
+    original,
+    min,
+  };
 };

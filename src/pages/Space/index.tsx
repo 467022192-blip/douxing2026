@@ -2,13 +2,12 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Heart, MessageCircle, MapPin, Image as ImageIcon, X, Send, Camera, Loader2, RefreshCw, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
-import { getPosts, getComments, addComment, createPost, uploadImage, checkLike, addLike, removeLike, deletePost, getAttractions } from '../../services/supabaseService';
+import { getPosts, getComments, addComment, createPost, uploadPostImageAsset, checkLike, addLike, removeLike, deletePost, getAttractions } from '../../services/supabaseService';
 import type { Post, Comment, Attraction } from '../../types';
 import ImagePreviewModal from '../../components/ImagePreviewModal';
+import { createMinImageFile, getPostListImageSrc, getPostPreviewImages } from '../../utils/imageVariants';
 
-const getPostImages = (post: Post): string[] => {
-  return Array.isArray(post.images) ? post.images.filter((image): image is string => typeof image === 'string' && image.length > 0) : [];
-};
+const getPostImages = (post: Post) => post.images || [];
 
 export default function Space() {
   const navigate = useNavigate();
@@ -224,7 +223,7 @@ export default function Space() {
 
   const handleImageClick = (e: React.MouseEvent, post: Post, imageIndex: number) => {
     e.stopPropagation();
-    const imgs = getPostImages(post);
+    const imgs = getPostPreviewImages(getPostImages(post));
     if (!imgs.length) return;
     setImagePreview({ open: true, images: imgs, index: Math.max(0, Math.min(imageIndex, imgs.length - 1)) });
   };
@@ -236,17 +235,18 @@ export default function Space() {
     try {
       setIsSubmitting(true);
       
-      const imageUrls: string[] = [];
+      const imageAssets = [];
       for (const file of selectedFiles) {
-        const url = await uploadImage(file, user.id);
-        imageUrls.push(url);
+        const minFile = await createMinImageFile(file);
+        const asset = await uploadPostImageAsset(file, minFile, user.id);
+        imageAssets.push(asset);
       }
 
       const newPost = await createPost({
         user_id: user.id,
         attraction_id: selectedAttraction,
         content: postContent,
-        images: imageUrls,
+        images: imageAssets,
         is_private: isPrivate,
       });
 
@@ -427,9 +427,16 @@ export default function Space() {
                       onClick={(e) => handleImageClick(e, post, idx)}
                     >
                       <img
-                        src={image}
+                        src={getPostListImageSrc(image)}
                         alt={`图片${idx + 1}`}
                         className="w-full h-full object-cover"
+                        loading="lazy"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          if (target.src !== image.original) {
+                            target.src = image.original;
+                          }
+                        }}
                       />
                     </div>
                   ))}
