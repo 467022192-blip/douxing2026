@@ -248,6 +248,26 @@ export const createAiTripPlan = async (
   return toSavedAiTripPlan(data);
 };
 
+export const updateAiTripPlan = async (
+  id: string,
+  result: TripPlanResult
+): Promise<SavedAiTripPlan> => {
+  const updateData: Database['public']['Tables']['ai_trip_plans']['Update'] = {
+    result_json: result as unknown as Database['public']['Tables']['ai_trip_plans']['Update']['result_json'],
+    updated_at: new Date().toISOString()
+  };
+
+  const { data, error } = await supabase
+    .from('ai_trip_plans')
+    .update(updateData)
+    .eq('id', id)
+    .select('*')
+    .single();
+
+  if (error) throw formatSupabaseError(error, '更新 AI 行程规划失败');
+  return toSavedAiTripPlan(data);
+};
+
 export const getAiTripPlansByUser = async (userId: string): Promise<SavedAiTripPlan[]> => {
   const { data, error } = await supabase
     .from('ai_trip_plans')

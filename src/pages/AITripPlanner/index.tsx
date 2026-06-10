@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { RefreshCw } from 'lucide-react';
 import GuideComposer from './components/GuideComposer';
 import GuideGeneratingState from './components/GuideGeneratingState';
 import GuidePageHeader from './components/GuidePageHeader';
@@ -13,7 +12,8 @@ import {
   getMyAiTripPlans,
   getPopularAiTripPlans,
   resolveTripPlanAttraction,
-  saveAiTripPlan
+  saveAiTripPlan,
+  updateSavedAiTripPlan
 } from '../../services/aiTripPlannerService';
 import type { PublicPopularAiTripPlanSummary, SavedAiTripPlan, TripPlanAttractionItem, TripPlanResult } from '../../types';
 import { trackEvent } from '../../utils/monitoring';
@@ -23,11 +23,14 @@ const EXAMPLE_QUERIES = [
   '周末两天一夜，适合上海出发的轻松亲子游，不想太赶'
 ];
 
-const STAGE_LABELS = ['正在理解你的需求', '正在组合景点攻略', '正在整理 3 套推荐'];
+const STAGE_LABELS = ['正在理解你的需求', '正在组合景点攻略', '正在整理首套推荐'];
 const SOFT_TIMEOUT_MS = 20_000;
 const HARD_TIMEOUT_MS = 35_000;
 const SAME_QUERY_GUARD_MS = 2_500;
+const INITIAL_RESULT_COUNT = 1;
+const MAX_RESULT_COUNT = 3;
 const POPULAR_FAVORITES_STORAGE_KEY = 'guide-popular-favorites';
+const GUIDE_DRAFT_STORAGE_KEY = 'guide-latest-draft';
 const SAVED_GUIDE_COVER_VARIANTS = [
   'premium aerial travel photo, layered landscape, cinematic depth',
   'editorial travel cover, wide scenic composition, crisp daylight',
@@ -55,6 +58,14 @@ type GeneratedSnapshot = {
   query: string;
   result: TripPlanResult;
 };
+
+const withNormalizedOptionIds = (result: TripPlanResult): TripPlanResult => ({
+  ...result,
+  options: result.options.map((option, index) => ({
+    ...option,
+    id: `plan-${index + 1}`
+  }))
+});
 
 const buildAttractionKey = (item: Pick<TripPlanAttractionItem, 'name' | 'city' | 'province'>) =>
   [item.name, item.province || '', item.city || ''].join('|');
@@ -116,6 +127,7 @@ const getGenerateErrorMessage = (error: unknown) => {
 
 export default function AITripPlanner() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { isAuthenticated, user } = useAuthStore();
 
   const [query, setQuery] = useState(EXAMPLE_QUERIES[0]);
@@ -131,6 +143,7 @@ export default function AITripPlanner() {
   const [publicPopularPlans, setPublicPopularPlans] = useState<PublicPopularAiTripPlanSummary[]>([]);
   const [favoritePopularIds, setFavoritePopularIds] = useState<string[]>([]);
   const [resolvingAttractionKey, setResolvingAttractionKey] = useState<string | null>(null);
+  const [isAppendingOptions, setIsAppendingOptions] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const activeRequestIdRef = useRef(0);
@@ -204,6 +217,29 @@ export default function AITripPlanner() {
   }, [favoritePopularIds]);
 
   useEffect(() => {
+    try {
+      const savedDraft = window.sessionStorage.getItem(GUIDE_DRAFT_STORAGE_KEY);
+      if (!savedDraft) return;
+
+      const parsed = JSON.parse(savedDraft) as Partial<GeneratedSnapshot>;
+      if (typeof parsed.query === 'string' && parsed.result && Array.isArray(parsed.result.options) && parsed.result.options.length > 0) {
+        setQuery(parsed.query);
+        setResult(withNormalizedOptionIds(parsed.result as TripPlanResult));
+      }
+    } catch {
+      window.sessionStorage.removeItem(GUIDE_DRAFT_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!result) return;
+    window.sessionStorage.setItem(GUIDE_DRAFT_STORAGE_KEY, JSON.stringify({
+      query,
+      result,
+    }));
+  }, [query, result]);
+
+  useEffect(() => {
     const loadPopularPlans = async () => {
       try {
         const data = await getPopularAiTripPlans();
@@ -240,6 +276,7 @@ export default function AITripPlanner() {
   }, [clearTimers]);
 
   const isGenerating = generateState === 'generating' || generateState === 'soft-timeout' || generateState === 'retrying';
+  const isWorking = isGenerating || isAppendingOptions;
   const elapsedSeconds = Math.max(1, Math.round(elapsedMs / 1000));
 
   const latestSavedAt = useMemo(() => {
@@ -261,6 +298,53 @@ export default function AITripPlanner() {
     }
     return '正在从景点库里筛选更合适的路线。';
   }, [generateState]);
+
+  const persistGeneratedResult = useCallback(async (
+    nextQuery: string,
+    nextResult: TripPlanResult,
+    source: 'initial' | 'append',
+    requestId?: number
+  ) => {
+    if (!isAuthenticated || !user?.id) return;
+
+    const syncSavedList = (savedId: string, createdAt?: string) => {
+      setPopularSavedPlans((current) => {
+        const nextItem: SavedAiTripPlan = {
+          id: savedId,
+          user_id: user.id,
+          input_query: nextQuery,
+          result_json: nextResult,
+          created_at: createdAt ?? current.find((item) => item.id === savedId)?.created_at
+        };
+
+        return [nextItem, ...current.filter((item) => item.id !== savedId)].slice(0, 4);
+      });
+    };
+
+    try {
+      if (latestSavedPlanId) {
+        const saved = await updateSavedAiTripPlan(latestSavedPlanId, nextResult);
+        setLatestSavedPlanId(saved.id);
+        setPendingAutoSaveSnapshot(null);
+        syncSavedList(saved.id, saved.created_at);
+        trackEvent('guide_auto_save_success', { id: saved.id, requestId, source });
+        return;
+      }
+
+      const saved = await saveAiTripPlan(user.id, nextQuery, nextResult);
+      setLatestSavedPlanId(saved.id);
+      setPendingAutoSaveSnapshot(null);
+      syncSavedList(saved.id, saved.created_at);
+      trackEvent('guide_auto_save_success', { id: saved.id, requestId, source });
+    } catch (error) {
+      setPendingAutoSaveSnapshot({
+        query: nextQuery,
+        result: nextResult
+      });
+      setErrorMessage(getStorageErrorMessage(error) || '攻略已生成，但保存失败，可稍后再试');
+      trackEvent('guide_auto_save_fail', { requestId, source });
+    }
+  }, [isAuthenticated, latestSavedPlanId, user?.id]);
 
   const triggerGenerate = useCallback(async (options?: PendingGenerateOptions) => {
     const trimmed = query.trim();
@@ -290,6 +374,7 @@ export default function AITripPlanner() {
 
     setErrorMessage('');
     setResult(null);
+    setIsAppendingOptions(false);
     setLatestSavedPlanId(null);
     setPendingAutoSaveSnapshot(null);
     beginProgress(Boolean(options?.retry));
@@ -302,7 +387,10 @@ export default function AITripPlanner() {
     const clientStart = Date.now();
 
     try {
-      const nextResult = await generateAiTripPlans(trimmed, { signal: controller.signal });
+      const nextResult = withNormalizedOptionIds(await generateAiTripPlans(trimmed, {
+        signal: controller.signal,
+        targetCount: INITIAL_RESULT_COUNT
+      }));
       if (requestId !== activeRequestIdRef.current) return;
 
       stopProgress();
@@ -325,32 +413,8 @@ export default function AITripPlanner() {
       });
 
       if (isAuthenticated && user?.id) {
-        const snapshot = {
-          query: trimmed,
-          result: nextResult
-        };
-        trackEvent('guide_auto_save_start', { requestId });
-
-        try {
-          const saved = await saveAiTripPlan(user.id, snapshot.query, snapshot.result);
-          setLatestSavedPlanId(saved.id);
-          setPopularSavedPlans((current) => {
-            const nextItem: SavedAiTripPlan = {
-              id: saved.id,
-              user_id: user.id,
-              input_query: snapshot.query,
-              result_json: snapshot.result,
-              created_at: saved.created_at
-            };
-
-            return [nextItem, ...current.filter((item) => item.id !== saved.id)].slice(0, 4);
-          });
-          trackEvent('guide_auto_save_success', { id: saved.id, requestId });
-        } catch (error) {
-          setPendingAutoSaveSnapshot(snapshot);
-          setErrorMessage(getStorageErrorMessage(error) || '攻略已生成，但保存失败，可稍后再试');
-          trackEvent('guide_auto_save_fail', { requestId });
-        }
+        trackEvent('guide_auto_save_start', { requestId, source: 'initial' });
+        await persistGeneratedResult(trimmed, nextResult, 'initial', requestId);
       }
     } catch (error) {
       if (requestId !== activeRequestIdRef.current) return;
@@ -371,7 +435,81 @@ export default function AITripPlanner() {
         message: nextMessage
       });
     }
-  }, [beginProgress, isAuthenticated, isGenerating, query, stopProgress, user?.id]);
+  }, [beginProgress, isAuthenticated, isGenerating, persistGeneratedResult, query, stopProgress, user?.id]);
+
+  const handleAppendOption = useCallback(async () => {
+    const trimmed = query.trim();
+    if (!trimmed || !result || isGenerating || isAppendingOptions || result.options.length >= MAX_RESULT_COUNT) {
+      return;
+    }
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const requestId = activeRequestIdRef.current + 1;
+    activeRequestIdRef.current = requestId;
+    setErrorMessage('');
+    setIsAppendingOptions(true);
+
+    trackEvent('guide_append_option_click', {
+      requestId,
+      currentOptionCount: result.options.length
+    });
+
+    try {
+      const appendResult = withNormalizedOptionIds(await generateAiTripPlans(trimmed, {
+        signal: controller.signal,
+        targetCount: 1,
+        existingTitles: result.options.map((option) => option.title)
+      }));
+      if (requestId !== activeRequestIdRef.current) return;
+
+      const mergedResult = withNormalizedOptionIds({
+        ...appendResult,
+        generatedAt: appendResult.generatedAt || result.generatedAt,
+        options: [...result.options, ...appendResult.options].slice(0, MAX_RESULT_COUNT),
+        meta: {
+          ...appendResult.meta,
+          totalMs: (result.meta?.totalMs || 0) + (appendResult.meta?.totalMs || 0),
+          modelMs: (result.meta?.modelMs || 0) + (appendResult.meta?.modelMs || 0),
+          matchMs: (result.meta?.matchMs || 0) + (appendResult.meta?.matchMs || 0),
+          cacheHit: false,
+          retried: Boolean(result.meta?.retried || appendResult.meta?.retried),
+        }
+      });
+
+      setResult(mergedResult);
+
+      trackEvent('guide_append_option_success', {
+        requestId,
+        nextOptionCount: mergedResult.options.length,
+        totalMs: appendResult.meta?.totalMs,
+        retried: appendResult.meta?.retried
+      });
+
+      if (isAuthenticated && user?.id) {
+        trackEvent('guide_auto_save_start', { requestId, source: 'append' });
+        await persistGeneratedResult(trimmed, mergedResult, 'append', requestId);
+      }
+    } catch (error) {
+      if (requestId !== activeRequestIdRef.current) return;
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
+
+      const nextMessage = getGenerateErrorMessage(error) || '这次换一换没有成功，请再试一次。';
+      setErrorMessage(nextMessage);
+      trackEvent('guide_append_option_fail', {
+        requestId,
+        message: nextMessage
+      });
+    } finally {
+      if (requestId === activeRequestIdRef.current) {
+        setIsAppendingOptions(false);
+      }
+    }
+  }, [isAppendingOptions, isAuthenticated, isGenerating, persistGeneratedResult, query, result, user?.id]);
 
   const handleContinueWait = useCallback(() => {
     setShowTimeoutActions(false);
@@ -387,19 +525,31 @@ export default function AITripPlanner() {
     setErrorMessage('');
     trackEvent('guide_auto_save_start', { source: 'manual-retry' });
     try {
-      const saved = await saveAiTripPlan(
-        user.id,
-        pendingAutoSaveSnapshot.query,
-        pendingAutoSaveSnapshot.result
-      );
+      const saved = latestSavedPlanId
+        ? await updateSavedAiTripPlan(latestSavedPlanId, pendingAutoSaveSnapshot.result)
+        : await saveAiTripPlan(
+            user.id,
+            pendingAutoSaveSnapshot.query,
+            pendingAutoSaveSnapshot.result
+          );
       setLatestSavedPlanId(saved.id);
       setPendingAutoSaveSnapshot(null);
+      setPopularSavedPlans((current) => {
+        const nextItem: SavedAiTripPlan = {
+          id: saved.id,
+          user_id: user.id,
+          input_query: pendingAutoSaveSnapshot.query,
+          result_json: pendingAutoSaveSnapshot.result,
+          created_at: saved.created_at
+        };
+        return [nextItem, ...current.filter((item) => item.id !== saved.id)].slice(0, 4);
+      });
       trackEvent('guide_auto_save_success', { id: saved.id, source: 'manual-retry' });
     } catch (error) {
       setErrorMessage(getStorageErrorMessage(error));
       trackEvent('guide_auto_save_fail', { source: 'manual-retry' });
     }
-  }, [pendingAutoSaveSnapshot, user?.id]);
+  }, [latestSavedPlanId, pendingAutoSaveSnapshot, user?.id]);
 
   const handleGoLogin = useCallback(() => {
     navigate('/login', {
@@ -417,24 +567,41 @@ export default function AITripPlanner() {
   };
 
   const handleOpenDetail = useCallback(async (item: TripPlanAttractionItem) => {
+    if (!isAuthenticated) {
+      const shouldLogin = window.confirm('登录后才能查看景点详情，并可尽量保留当前攻略，避免稍后找不到。现在去登录吗？');
+      if (shouldLogin) {
+        navigate('/login', {
+          state: { redirectTo: location.pathname }
+        });
+      } else {
+        setErrorMessage('当前未登录，攻略详情可能保存失败，离开后也可能无法再次查看。');
+      }
+      return;
+    }
+
     const nextKey = buildAttractionKey(item);
     setResolvingAttractionKey(nextKey);
     try {
       const attractionId = await resolveTripPlanAttraction(item);
-      navigate(`/attraction/${attractionId}`);
+      navigate(`/attraction/${attractionId}`, {
+        state: {
+          backTo: '/ai-trip-planner',
+          backLabel: '返回攻略'
+        }
+      });
       trackEvent('guide_attraction_detail_open', {
         attractionName: item.name,
         source: item.matchedAttractionId ? 'legacy-match' : 'lazy-resolve'
       });
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '暂未匹配到景区详情，请稍后再试');
+      setErrorMessage(error instanceof Error ? error.message : '暂无景区介绍');
       trackEvent('guide_attraction_detail_resolve_fail', {
         attractionName: item.name
       });
     } finally {
       setResolvingAttractionKey(null);
     }
-  }, [navigate]);
+  }, [isAuthenticated, location.pathname, navigate]);
 
   const togglePopularFavorite = useCallback((id: string) => {
     setFavoritePopularIds((current) => {
@@ -470,10 +637,11 @@ export default function AITripPlanner() {
 
   const resultMetaText = useMemo(() => {
     const base = [latestSavedAt, latestDuration].filter(Boolean).join(' · ');
-    if (!base) return '已生成 3 套景点攻略';
+    const optionCount = result?.options.length || 0;
+    if (!base) return `已生成 ${optionCount} 套景点攻略`;
     if (latestSavedPlanId) return `${base} 已自动保存至“我的攻略”`;
     return base;
-  }, [latestDuration, latestSavedAt, latestSavedPlanId]);
+  }, [latestDuration, latestSavedAt, latestSavedPlanId, result?.options.length]);
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[linear-gradient(180deg,#f4f7fb_0%,#f7fafc_56%,#f9fafb_100%)] pb-24">
@@ -487,7 +655,7 @@ export default function AITripPlanner() {
           <GuideComposer
             query={query}
             examples={EXAMPLE_QUERIES}
-            isGenerating={isGenerating}
+            isGenerating={isWorking}
             onQueryChange={setQuery}
             onUseExample={handleUseExample}
             onSubmit={() => {
@@ -532,27 +700,31 @@ export default function AITripPlanner() {
           <section className="mt-5">
             <div className="flex items-center justify-between gap-3 px-1">
               <div>
-                <h2 className="text-lg font-semibold text-gray-800">为你生成的 3 套攻略</h2>
+                <h2 className="text-lg font-semibold text-gray-800">为你生成的 {result.options.length} 套攻略</h2>
                 <p className="mt-1 text-xs leading-5 text-gray-500">{resultMetaText}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => {
-                    void triggerGenerate({ retry: true });
+                    if (result.options.length >= MAX_RESULT_COUNT) {
+                      void triggerGenerate({ retry: true });
+                      return;
+                    }
+                    void handleAppendOption();
                   }}
-                  disabled={isGenerating}
-                  className="rounded-full bg-white p-2 text-gray-500 shadow-sm ring-1 ring-gray-100"
-                  aria-label="重新生成"
+                  disabled={isWorking}
+                  className="inline-flex shrink-0 items-center rounded-full bg-white px-3 py-2 text-[13px] font-medium text-emerald-700 shadow-sm ring-1 ring-emerald-100 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  aria-label={result.options.length >= MAX_RESULT_COUNT ? '换个试试' : '换一换'}
                 >
-                  <RefreshCw className={`h-4 w-4 ${isGenerating ? 'animate-spin' : ''}`} />
+                  <span>{result.options.length >= MAX_RESULT_COUNT ? '换个试试' : (isAppendingOptions ? '补方案中' : '换一换')}</span>
                 </button>
               </div>
             </div>
 
             {!isAuthenticated ? (
               <div className="mt-3 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-700">
-                <div>你可以先试用攻略生成，登录后会自动保存到我的攻略。</div>
+                <div>未登录时，当前攻略可能保存失败，离开后也可能无法再次查看；查看景点详情前建议先登录。</div>
                 <button
                   type="button"
                   onClick={handleGoLogin}
@@ -564,6 +736,11 @@ export default function AITripPlanner() {
             ) : null}
 
             <div className="mt-4 space-y-4">
+              {result.options.length < MAX_RESULT_COUNT ? (
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-700">
+                  当前已生成 {result.options.length} 套高质量攻略，还可再补 {MAX_RESULT_COUNT - result.options.length} 套备选方案。
+                </div>
+              ) : null}
               {result.options.map((option, index) => (
                 <GuideResultCard
                   key={option.id}

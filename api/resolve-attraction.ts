@@ -119,7 +119,7 @@ export default async function handler(req: any, res: any) {
 
     const best = findBestCandidate({ name, city, province }, candidates);
     if (!best) {
-      return json(res, 404, { error: '暂未匹配到景区详情。' });
+      return json(res, 404, { error: '暂无景区介绍。' });
     }
 
     return json(res, 200, {

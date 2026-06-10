@@ -87,6 +87,8 @@ export interface Province {
 
 export interface TripPlannerRequest {
   query: string;
+  targetCount?: number;
+  existingTitles?: string[];
 }
 
 export interface TripPlanAttractionItem {

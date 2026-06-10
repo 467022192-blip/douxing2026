@@ -18,6 +18,8 @@ export default function AttractionDetail() {
   const [isFetchingDetails, setIsFetchingDetails] = useState(false);
 
   const cacheKey = id ? `attractions:detail:${id}` : '';
+  const backTo = (location.state as { backTo?: string } | null)?.backTo || '';
+  const backLabel = (location.state as { backLabel?: string } | null)?.backLabel || '返回上一页';
 
   const { checkins, addCheckin, updateCheckin } = useAppStore();
   const { isAuthenticated } = useAuthStore();
@@ -105,10 +107,10 @@ export default function AttractionDetail() {
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
         <p className="text-gray-500 mb-4">未找到该景区信息</p>
         <button 
-          onClick={() => navigate(-1)}
+          onClick={() => (backTo ? navigate(backTo) : navigate(-1))}
           className="px-6 py-2 bg-emerald-500 text-white rounded-full text-sm"
         >
-          返回上一页
+          {backLabel}
         </button>
       </div>
     );
@@ -193,7 +195,7 @@ export default function AttractionDetail() {
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* 头部导航 */}
       <div className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-100 px-4 py-3 flex items-center justify-between">
-        <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-full hover:bg-gray-100">
+        <button onClick={() => (backTo ? navigate(backTo) : navigate(-1))} className="p-2 -ml-2 rounded-full hover:bg-gray-100" aria-label={backLabel}>
           <ChevronLeft size={24} className="text-gray-800" />
         </button>
         <h1 className="text-lg font-semibold text-gray-900 truncate flex-1 text-center px-4">

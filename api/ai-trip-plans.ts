@@ -101,12 +101,31 @@ const getGenerationConfig = (query: string) => {
   };
 };
 
-const buildPrompt = (query: string, config: ReturnType<typeof getGenerationConfig>) => `
-你是一个中文旅行规划助手。请根据用户需求输出 3 个不同风格的景点行程方案。
+const normalizeTargetCount = (value: unknown) => {
+  const nextValue = Number(value);
+  if (!Number.isFinite(nextValue)) return 3;
+  return Math.max(1, Math.min(3, Math.floor(nextValue)));
+};
+
+const buildExistingTitlesPrompt = (existingTitles: string[]) => {
+  if (!existingTitles.length) return '';
+  return `
+已有方案标题（请避免重复相同风格、结构和命名）：
+${existingTitles.map((title, index) => `${index + 1}. ${title}`).join('\n')}
+`;
+};
+
+const buildPrompt = (
+  query: string,
+  config: ReturnType<typeof getGenerationConfig>,
+  targetCount: number,
+  existingTitles: string[]
+) => `
+你是一个中文旅行规划助手。请根据用户需求输出 ${targetCount} 个不同风格的景点行程方案。
 
 要求：
 1. 只输出 JSON，不要输出任何额外说明。
-2. 必须返回 3 个方案，字段名固定为 options。
+2. 必须返回 ${targetCount} 个方案，字段名固定为 options。
 3. 每个方案必须包含 title、reason、days。
 4. days 必须是数组；每一项包含 day、title、attractions。
 5. attractions 必须是数组；每项包含 name、summary，可选 city、province。
@@ -118,6 +137,7 @@ const buildPrompt = (query: string, config: ReturnType<typeof getGenerationConfi
 11. ${config.isLongTrip ? '长行程时请保持紧凑：每天只放 1 个核心景点，summary 控制在 8-14 个字。' : '每一天可以安排 1-2 个核心景点。'}
 12. ${config.isVeryLongTrip ? '当天数 >= 10 时，必须优先保证 10 天都完整返回；title、reason、day.title 都尽量短，不要写城市介绍。' : '不要省略任何一天。'}
 13. ${config.isVeryLongTrip ? 'city、province 仅在确有必要时填写，不要每个景点都重复填写。' : 'city、province 可按需填写。'}
+14. ${existingTitles.length ? '你正在补充新的备选方案，必须与已有方案在风格、标题措辞和路线节奏上明显不同。' : '方案之间必须风格明显不同。'}
 
 JSON 示例：
 {
@@ -143,33 +163,41 @@ JSON 示例：
   ]
 }
 
+${buildExistingTitlesPrompt(existingTitles)}
 用户需求：${query}
 `;
 
-const buildRetryPrompt = (query: string, config: ReturnType<typeof getGenerationConfig>) => `
+const buildRetryPrompt = (
+  query: string,
+  config: ReturnType<typeof getGenerationConfig>,
+  targetCount: number,
+  existingTitles: string[]
+) => `
 你上一次返回的内容不是严格合法 JSON。请重新输出，并且严格遵守以下规则：
 1. 只输出一个合法 JSON 对象，不要输出任何解释、标题、注释或 Markdown 代码块。
 2. 所有字段名必须使用双引号。
 3. 所有字符串必须使用双引号。
 4. 不能出现尾逗号。
-5. 顶层结构必须是 {"options":[...]}，并且 options 恰好返回 3 个方案。
+5. 顶层结构必须是 {"options":[...]}，并且 options 恰好返回 ${targetCount} 个方案。
 6. 每个方案都必须包含 title、reason、days。
 7. 每个 day 都必须包含 day、title、attractions；attractions 内每项都必须是对象，至少包含 name，可选 summary、city、province。
-8. 如果用户明确提到了天数，3 个方案里的 days 数量都必须与天数一致。
+8. 如果用户明确提到了天数，所有方案里的 days 数量都必须与天数一致。
 9. ${config.isLongTrip ? '这是长行程，请每天只保留 1 个最核心景点，summary 极简，不要写长句。' : '每天请保留 1-2 个核心景点。'}
 10. 不要让任何一个方案出现空 days，也不要让任何一天出现空 attractions，不要把 attractions 写成字符串数组。
+11. ${existingTitles.length ? '这些已存在的方案标题不要重复，也不要输出相同风格的路线。' : '不同方案之间不要重复同一风格。'}
 
+${buildExistingTitlesPrompt(existingTitles)}
 用户需求：${query}
 `;
 
-const validateParsedOptions = (parsed: { options?: LlmOption[] }) => {
-  if (!Array.isArray(parsed.options) || parsed.options.length < 3) {
-    throw new Error('模型返回的方案数量不足 3 个');
+const validateParsedOptions = (parsed: { options?: LlmOption[] }, targetCount: number) => {
+  if (!Array.isArray(parsed.options) || parsed.options.length < targetCount) {
+    throw new Error(`模型返回的方案数量不足 ${targetCount} 个`);
   }
-  return { options: parsed.options.slice(0, 3) };
+  return { options: parsed.options.slice(0, targetCount) };
 };
 
-const parseContent = (content: string): { options: LlmOption[] } => {
+const parseContent = (content: string, targetCount: number): { options: LlmOption[] } => {
   const candidate = extractJsonCandidate(content);
   const attempts = [candidate, sanitizeLooseJson(candidate)].filter(Boolean);
   let lastError: unknown = null;
@@ -177,7 +205,7 @@ const parseContent = (content: string): { options: LlmOption[] } => {
   for (const attempt of attempts) {
     try {
       const parsed = JSON.parse(attempt) as { options?: LlmOption[] };
-      return validateParsedOptions(parsed);
+      return validateParsedOptions(parsed, targetCount);
     } catch (error) {
       lastError = error;
     }
@@ -329,7 +357,7 @@ export default async function handler(req: any, res: any) {
     return json(res, 503, { error: 'AI 服务暂未配置，请补充 OPENAI_BASE_URL、OPENAI_API_KEY、MODEL_NAME。' });
   }
 
-  let body: { query?: string } = {};
+  let body: { query?: string; targetCount?: number; existingTitles?: string[] } = {};
   try {
     body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
   } catch {
@@ -337,6 +365,14 @@ export default async function handler(req: any, res: any) {
   }
 
   const query = (body.query || '').trim();
+  const targetCount = normalizeTargetCount(body.targetCount);
+  const existingTitles = Array.isArray(body.existingTitles)
+    ? body.existingTitles
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .slice(0, 3)
+    : [];
   if (!query) {
     return json(res, 400, { error: '请先输入你的出行需求。' });
   }
@@ -354,7 +390,7 @@ export default async function handler(req: any, res: any) {
       openAiBaseUrl,
       openAiApiKey,
       modelName,
-      buildPrompt(query, generationConfig),
+      buildPrompt(query, generationConfig, targetCount, existingTitles),
       generationConfig.temperature,
       generationConfig.maxTokens
     );
@@ -362,7 +398,7 @@ export default async function handler(req: any, res: any) {
     let parsed: { options: LlmOption[] };
 
     try {
-      parsed = parseContent(firstCompletion.content);
+      parsed = parseContent(firstCompletion.content, targetCount);
     } catch (error) {
       if (!isRetryableJsonParseError(error)) {
         throw error;
@@ -374,12 +410,12 @@ export default async function handler(req: any, res: any) {
         openAiBaseUrl,
         openAiApiKey,
         modelName,
-        buildRetryPrompt(query, generationConfig),
+        buildRetryPrompt(query, generationConfig, targetCount, existingTitles),
         0.2,
         generationConfig.retryMaxTokens
       );
       modelMs += retryCompletion.durationMs;
-      parsed = parseContent(retryCompletion.content);
+      parsed = parseContent(retryCompletion.content, targetCount);
     }
 
     let options = buildMappedOptions(parsed);
@@ -394,12 +430,12 @@ export default async function handler(req: any, res: any) {
         openAiBaseUrl,
         openAiApiKey,
         modelName,
-        buildRetryPrompt(query, generationConfig),
+        buildRetryPrompt(query, generationConfig, targetCount, existingTitles),
         0.2,
         generationConfig.retryMaxTokens
       );
       modelMs += structureRetry.durationMs;
-      parsed = parseContent(structureRetry.content);
+      parsed = parseContent(structureRetry.content, targetCount);
       options = buildMappedOptions(parsed);
 
       if (

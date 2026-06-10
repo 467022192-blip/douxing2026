@@ -67,14 +67,31 @@ export default function GuideHistoryDetailPage() {
   }, [item?.created_at]);
 
   const handleOpenAttraction = async (attraction: TripPlanAttractionItem) => {
+    if (!isAuthenticated) {
+      const shouldLogin = window.confirm('登录后才能查看景点详情。未登录时，当前攻略也可能无法再次查看。现在去登录吗？');
+      if (shouldLogin) {
+        navigate('/login', {
+          state: { redirectTo: location.pathname }
+        });
+      } else {
+        setDetailError('当前未登录，攻略详情可能保存失败，离开后也可能无法再次查看。');
+      }
+      return;
+    }
+
     const nextKey = [attraction.name, attraction.province || '', attraction.city || ''].join('|');
     setResolvingAttractionKey(nextKey);
     setDetailError('');
     try {
       const attractionId = await resolveTripPlanAttraction(attraction);
-      navigate(`/attraction/${attractionId}`);
+      navigate(`/attraction/${attractionId}`, {
+        state: {
+          backTo: location.pathname,
+          backLabel: '返回攻略详情'
+        }
+      });
     } catch (error) {
-      setDetailError(error instanceof Error ? error.message : '暂未匹配到景区详情，请稍后再试');
+      setDetailError(error instanceof Error ? error.message : '暂无景区介绍');
     } finally {
       setResolvingAttractionKey(null);
     }

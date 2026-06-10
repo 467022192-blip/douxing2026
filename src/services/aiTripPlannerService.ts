@@ -2,7 +2,8 @@ import {
   createAiTripPlan,
   getAiTripPlanById,
   getAiTripPlanSummariesByUser,
-  getAiTripPlansByUser
+  getAiTripPlansByUser,
+  updateAiTripPlan
 } from './supabaseService';
 import { POPULAR_TRIP_PLANS, getPopularTripPlanById } from '../data/popularTripPlans';
 import type {
@@ -11,6 +12,7 @@ import type {
   ResolvedAiTripPlanDetail,
   SavedAiTripPlan,
   SavedAiTripPlanSummary,
+  TripPlannerRequest,
   TripPlanAttractionItem,
   TripPlanResult
 } from '../types';
@@ -51,14 +53,23 @@ const buildPopularTripPlanSummaryFallback = (): PublicPopularAiTripPlanSummary[]
 
 export const generateAiTripPlans = async (
   query: string,
-  options?: { signal?: AbortSignal }
+  options?: {
+    signal?: AbortSignal;
+    targetCount?: number;
+    existingTitles?: string[];
+  }
 ): Promise<TripPlanResult> => {
+  const payload: TripPlannerRequest = {
+    query,
+    targetCount: options?.targetCount,
+    existingTitles: options?.existingTitles,
+  };
   const response = await fetch('/api/ai-trip-plans', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify(payload),
     signal: options?.signal
   });
 
@@ -71,6 +82,13 @@ export const saveAiTripPlan = async (
   result: TripPlanResult
 ): Promise<SavedAiTripPlan> => {
   return createAiTripPlan(userId, query, result);
+};
+
+export const updateSavedAiTripPlan = async (
+  id: string,
+  result: TripPlanResult
+): Promise<SavedAiTripPlan> => {
+  return updateAiTripPlan(id, result);
 };
 
 export const getMyAiTripPlans = async (userId: string): Promise<SavedAiTripPlan[]> => {
@@ -141,7 +159,7 @@ export const resolveTripPlanAttraction = async (item: TripPlanAttractionItem): P
   if (item.province) params.set('province', item.province);
 
   const response = await fetch(`/api/resolve-attraction?${params.toString()}`);
-  const payload = await parseJsonResponse<{ id: string }>(response, '暂未匹配到景区详情，请稍后再试');
+  const payload = await parseJsonResponse<{ id: string }>(response, '暂无景区介绍');
   attractionResolveCache.set(key, payload.id);
   return payload.id;
 };
